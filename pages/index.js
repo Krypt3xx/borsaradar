@@ -1,72 +1,40 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Head from "next/head";
 
-// ─── RSS SOURCES ────────────────────────────────────────────────────────────
-const RSS_SOURCES = [
-  { url: "https://feeds.bbci.co.uk/news/business/rss.xml",             kaynak: "BBC Business" },
-  { url: "https://feeds.reuters.com/reuters/businessNews",             kaynak: "Reuters" },
-  { url: "https://www.cnbc.com/id/100003114/device/rss/rss.html",      kaynak: "CNBC Markets" },
-  { url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC&region=US&lang=en-US", kaynak: "Yahoo Finance" },
-  { url: "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",              kaynak: "WSJ Markets" },
-  { url: "https://www.investing.com/rss/news_25.rss",                  kaynak: "Investing.com" },
-];
-
-// ─── CLASSIFICATION ──────────────────────────────────────────────────────────
-const KATEGORI_MAP = {
-  "JEOPOLİTİK": ["war","iran","russia","ukraine","israel","nato","military","conflict","sanction","crisis","tension","attack","turkey","syria","gaza","savaş","gerilim","tehdit"],
-  "ENERJİ":     ["oil","crude","gas","opec","energy","pipeline","brent","wti","petrol","doğalgaz","barrel","lng","solar","wind"],
-  "MERKEZ BANKASI": ["fed","federal reserve","rate","interest","inflation","ecb","central bank","faiz","enflasyon","powell","lagarde","tcmb","monetary"],
-  "TEKNOLOJİ":  ["nvidia","apple","google","microsoft","amazon","meta","ai","chip","semiconductor","tech","openai","tsmc","alphabet","tesla"],
-  "TÜRKİYE":   ["turkey","turkish","lira","istanbul","ankara","bist","türkiye","türk","erdoğan","borsa"],
-  "EMTİA":      ["gold","silver","copper","wheat","corn","commodity","altın","gümüş","bakır","buğday","platinum","alumin"],
-  "KRİPTO":     ["bitcoin","crypto","ethereum","blockchain","btc","eth","kripto","coinbase","defi","stablecoin"],
-};
-const ETKİ_YUKSEK = ["war","attack","crash","crisis","surge","plunge","record","ban","default","collapse","emergency","catastroph","spike","soar"];
-const ETKİ_ORTA   = ["rise","fall","gain","loss","cut","hike","deal","meeting","report","data","decision","change","shift"];
-
-const kategoriBul  = t => { const s = t.toLowerCase(); for (const [k,ws] of Object.entries(KATEGORI_MAP)) if (ws.some(w=>s.includes(w))) return k; return "GENEL"; };
-const etkiBul      = t => { const s = t.toLowerCase(); if (ETKİ_YUKSEK.some(w=>s.includes(w))) return "YÜKSEK"; if (ETKİ_ORTA.some(w=>s.includes(w))) return "ORTA"; return "DÜŞÜK"; };
-const yonBul       = t => {
-  const s = t.toLowerCase();
-  const p = ["rise","gain","surge","jump","high","rally","up ","growth","boost","profit","record high","artış","yüksel","rekor"].filter(w=>s.includes(w)).length;
-  const n = ["fall","drop","crash","plunge"," low","decline","loss","cut ","crisis","default","düşüş","kayıp","kriz","geril"].filter(w=>s.includes(w)).length;
-  return p > n ? "POZİTİF" : n > p ? "NEGATİF" : "KARISIK";
-};
-const zamanFmt = d => { try { const m=(Date.now()-new Date(d).getTime())/60000; if(m<60) return `${Math.floor(m)} dk önce`; if(m<1440) return `${Math.floor(m/60)} sa önce`; return `${Math.floor(m/1440)} gün önce`; } catch { return "az önce"; } };
-
-// ─── CLAUDE SYSTEM PROMPT ────────────────────────────────────────────────────
-const SYSTEM = `Sen dünyaca tanınmış bir finansal analist ve borsa stratejistisin. Goldman Sachs seviyesinde analiz yapıyorsun.
+const ANALYSIS_SYSTEM = `Sen dünyaca tanınmış bir finansal analist ve borsa stratejistisin. Goldman Sachs seviyesinde analiz yapıyorsun.
 
 Kullanıcı sana bir haber verir. Şunları yap:
 
 ## ZİNCİR ANALİZ
-Olay → Birincil etki → İkincil etki → Piyasa yansıması (ok işaretiyle göster)
+Olay → Birincil etki → İkincil etki → Piyasa yansıması (→ işaretiyle göster)
 
 ## HİSSE & VARLIK ÖNERİLERİ
-Her öneri için şu formatı kullan:
+Her öneri için:
 **[SEMBOL]** 📈 AL / 📉 SAT | Hedef: %±XX | Güven: %XX | Neden: kısa açıklama
 
-BIST hisseleri önce (TUPRS, THYAO, EREGL, ASELS, GARAN, BIMAS, SISE, KCHOL, TCELL, PETKM, AKBNK vb.)
-Sonra global (NVDA, XOM, CVX, GLD, USO, TLT vb.)
+BIST önce: TUPRS, THYAO, EREGL, ASELS, GARAN, BIMAS, SISE, KCHOL, TCELL, PETKM, AKBNK, FROTO
+Global: NVDA, XOM, CVX, GLD, USO, TLT, SPY
 
-## DÖVİZ & EMTİA GÖRÜŞÜ
-USD/TRY, EUR/TRY, Altın (XAU/USD), Petrol (Brent) beklentileri
+## DÖVİZ & EMTİA
+USD/TRY, Altın (XAU/USD), Petrol (Brent) beklentisi
 
-## SENARYO ANALİZİ
-🟢 Boğa senaryosu (%X olasılık): açıklama
-🔴 Ayı senaryosu (%X olasılık): açıklama
+## SENARYO
+🟢 Boğa (%X olasılık): ...
+🔴 Ayı (%X olasılık): ...
 
-## ÖZET VE EN GÜÇLÜ ÖNERİ
-2-3 cümle özet + en güçlü 1-2 pozisyon
+## ÖZET
+En güçlü 1-2 öneri + kısa gerekçe
 
-Türkçe yaz. Net ve somut rakamlar kullan. Spekülatif ise belirt.
+Türkçe, net, somut rakamlar.
 ⚠️ Bu analiz yatırım tavsiyesi değildir.`;
 
-// ─── COLORS ──────────────────────────────────────────────────────────────────
-const KRENK = { "JEOPOLİTİK":"#ff6b6b","ENERJİ":"#ffa500","MERKEZ BANKASI":"#00e5ff","TEKNOLOJİ":"#a78bfa","TÜRKİYE":"#ff4444","EMTİA":"#ffd700","KRİPTO":"#f59e0b","GENEL":"#4a8a8a" };
+const KRENK = {
+  "JEOPOLİTİK":"#ff6b6b","ENERJİ":"#ffa500","MERKEZ BANKASI":"#00e5ff",
+  "TEKNOLOJİ":"#a78bfa","TÜRKİYE":"#ff4444","EMTİA":"#ffd700",
+  "KRİPTO":"#f59e0b","GENEL":"#4a8a8a",
+};
 const ERENK = { "YÜKSEK":"#ff4444","ORTA":"#ffa500","DÜŞÜK":"#4a8a4a" };
 
-// ─── MARKDOWN PARSER ─────────────────────────────────────────────────────────
 function md(text) {
   return text
     .replace(/\*\*(.+?)\*\*/g, "<strong style='color:#e8f4e8'>$1</strong>")
@@ -78,61 +46,51 @@ function md(text) {
     .replace(/\n/g,            "<br/>");
 }
 
-// ─── DOTS LOADER ─────────────────────────────────────────────────────────────
 const Dots = () => (
   <span style={{display:"inline-flex",gap:3,alignItems:"center",verticalAlign:"middle"}}>
     {[0,1,2].map(i=>(
-      <span key={i} style={{width:5,height:5,borderRadius:"50%",background:"#00ff88",display:"inline-block",animation:`dp 1.2s ease-in-out ${i*.2}s infinite`}}/>
+      <span key={i} style={{width:5,height:5,borderRadius:"50%",background:"#00ff88",
+        display:"inline-block",animation:`dp 1.2s ease-in-out ${i*.2}s infinite`}}/>
     ))}
   </span>
 );
 
-// ─── MAIN ────────────────────────────────────────────────────────────────────
 export default function BorsaRadar() {
-  const [haberler,  setHaberler]  = useState([]);
-  const [yukl,      setYukl]      = useState(false);
-  const [hata,      setHata]      = useState("");
-  const [secilen,   setSecilen]   = useState(null);
-  const [analiz,    setAnaliz]    = useState("");
-  const [analizYuk, setAnalizYuk] = useState(false);
-  const [manuel,    setManuel]    = useState("");
-  const [tab,       setTab]       = useState("akis");
-  const [goster,    setGoster]    = useState(false);
-  const [cd,        setCd]        = useState(300);
-  const [sonGun,    setSonGun]    = useState(null);
+  const [haberler,    setHaberler]    = useState([]);
+  const [yukl,        setYukl]        = useState(false);
+  const [hata,        setHata]        = useState("");
+  const [kaynakBilgi, setKaynakBilgi] = useState(null);
+  const [secilen,     setSecilen]     = useState(null);
+  const [analiz,      setAnaliz]      = useState("");
+  const [analizYuk,   setAnalizYuk]   = useState(false);
+  const [manuel,      setManuel]      = useState("");
+  const [tab,         setTab]         = useState("akis");
+  const [goster,      setGoster]      = useState(false);
+  const [cd,          setCd]          = useState(300);
+  const [sonGun,      setSonGun]      = useState(null);
   const cdRef = useRef(null);
 
-  // ── RSS yükleme ──
-  const rssYukle = useCallback(async () => {
+  const haberleriYukle = useCallback(async () => {
     setYukl(true); setHata(""); setCd(300);
-    const arr = [];
-    await Promise.allSettled(RSS_SOURCES.map(async ({url, kaynak}) => {
-      try {
-        const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-        const r = await fetch(proxy, { signal: AbortSignal.timeout(9000) });
-        const j = await r.json();
-        const doc = new DOMParser().parseFromString(j.contents||"", "text/xml");
-        Array.from(doc.querySelectorAll("item")).slice(0,8).forEach((item,i) => {
-          const baslik = item.querySelector("title")?.textContent?.trim()||"";
-          const ozet   = item.querySelector("description")?.textContent?.replace(/<[^>]+>/g,"").trim().slice(0,200)||"";
-          const tarih  = item.querySelector("pubDate")?.textContent||"";
-          if (baslik) arr.push({
-            id: `${kaynak}-${i}`, baslik, ozet, kaynak, tarih,
-            zaman: zamanFmt(tarih),
-            kategori: kategoriBul(baslik+" "+ozet),
-            etki: etkiBul(baslik+" "+ozet),
-            yon: yonBul(baslik+" "+ozet),
-          });
-        });
-      } catch {}
-    }));
-    arr.sort((a,b)=>{ try{return new Date(b.tarih)-new Date(a.tarih);}catch{return 0;} });
-    if (arr.length > 0) { setHaberler(arr.slice(0,50)); setSonGun(new Date().toLocaleTimeString("tr-TR")); setHata(""); }
-    else setHata("RSS kaynakları yanıt vermedi. Ağ bağlantısını kontrol edin veya tekrar deneyin.");
-    setYukl(false);
+    try {
+      const res = await fetch("/api/news");
+      if (!res.ok) throw new Error(`Sunucu hatası: ${res.status}`);
+      const data = await res.json();
+      if (data.haberler?.length > 0) {
+        setHaberler(data.haberler);
+        setSonGun(new Date().toLocaleTimeString("tr-TR"));
+        setKaynakBilgi(`${data.kaynak_sayisi}/${data.toplam_kaynak} kaynak`);
+        setHata("");
+      } else {
+        setHata("Hiç haber çekilemedi. Kaynaklar geçici olarak erişilemez olabilir.");
+      }
+    } catch (e) {
+      setHata(`Yükleme hatası: ${e.message}`);
+    } finally {
+      setYukl(false);
+    }
   }, []);
 
-  // ── Claude analiz ──
   const analizEt = useCallback(async (metin) => {
     if (!metin || analizYuk) return;
     setAnalizYuk(true); setAnaliz(""); setGoster(true);
@@ -140,23 +98,34 @@ export default function BorsaRadar() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1500, system:SYSTEM, messages:[{role:"user",content:`Analiz et:\n\n"${metin}"`}] }),
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1500,
+          system: ANALYSIS_SYSTEM,
+          messages: [{ role:"user", content:`Analiz et:\n\n"${metin}"` }],
+        }),
       });
       const data = await res.json();
-      const txt = data.content?.map(b=>b.text||"").join("")||"Analiz alınamadı.";
-      let i=0;
-      const iv = setInterval(()=>{ i+=16; setAnaliz(txt.slice(0,i)); if(i>=txt.length){setAnaliz(txt);clearInterval(iv);} },8);
-    } catch { setAnaliz("❌ Sunucu bağlantı hatası."); }
-    finally { setAnalizYuk(false); }
+      if (data.error) throw new Error(data.error);
+      const txt = data.content?.map(b => b.text||"").join("") || "Analiz alınamadı.";
+      let i = 0;
+      const iv = setInterval(() => {
+        i += 18; setAnaliz(txt.slice(0,i));
+        if (i >= txt.length) { setAnaliz(txt); clearInterval(iv); }
+      }, 8);
+    } catch (e) {
+      setAnaliz(`❌ Hata: ${e.message}`);
+    } finally {
+      setAnalizYuk(false);
+    }
   }, [analizYuk]);
 
-  // ── Init ──
-  useEffect(()=>{
-    rssYukle();
-    const refresh = setInterval(rssYukle, 5*60*1000);
-    cdRef.current = setInterval(()=>setCd(c=>c>0?c-1:300),1000);
-    return ()=>{ clearInterval(refresh); clearInterval(cdRef.current); };
-  },[]);
+  useEffect(() => {
+    haberleriYukle();
+    const refresh = setInterval(haberleriYukle, 5 * 60 * 1000);
+    cdRef.current = setInterval(() => setCd(c => c > 0 ? c - 1 : 300), 1000);
+    return () => { clearInterval(refresh); clearInterval(cdRef.current); };
+  }, []);
 
   const fmtCD = s => `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
@@ -165,9 +134,7 @@ export default function BorsaRadar() {
       <Head>
         <title>BorsaRadar — 7/24 Finansal Analiz</title>
         <meta name="viewport" content="width=device-width, initial-scale=1"/>
-        <meta name="description" content="Gerçek zamanlı haber akışı ile otomatik borsa analizi"/>
       </Head>
-
       <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"#04080f",color:"#b8ccd8",fontFamily:"'Courier New',monospace",overflow:"hidden"}}>
         <style>{`
           @keyframes dp{0%,100%{opacity:.2;transform:scale(.7)}50%{opacity:1;transform:scale(1.2)}}
@@ -176,8 +143,7 @@ export default function BorsaRadar() {
           .hi{transition:all .12s;cursor:pointer}
           .hi:hover{background:#0a1820!important;border-color:#00ff8855!important}
           .hi.sel{background:#071a0f!important;border-color:#00ff88!important}
-          ::-webkit-scrollbar{width:3px}
-          ::-webkit-scrollbar-track{background:#04080f}
+          ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:#04080f}
           ::-webkit-scrollbar-thumb{background:#00ff8833;border-radius:2px}
           textarea:focus{outline:none}
           .tb{background:none;border:none;font-family:'Courier New',monospace;cursor:pointer;letter-spacing:.1em;font-size:11px;padding:9px 14px;transition:all .15s;text-transform:uppercase;color:#2a5a3a;border-bottom:2px solid transparent}
@@ -190,7 +156,6 @@ export default function BorsaRadar() {
           .li span:first-child{color:#00ff88;flex-shrink:0}
         `}</style>
 
-        {/* Scanline */}
         <div style={{position:"fixed",left:0,right:0,height:1,background:"linear-gradient(90deg,transparent,#00ff8815,transparent)",animation:"scan 12s linear infinite",pointerEvents:"none",zIndex:999}}/>
 
         {/* HEADER */}
@@ -201,10 +166,12 @@ export default function BorsaRadar() {
             </span>
             <span style={{fontSize:9,color:"#1a5a3a",letterSpacing:".2em",borderLeft:"1px solid #0a2a1a",paddingLeft:10}}>7/24 CANLI</span>
             {sonGun && <span style={{fontSize:9,color:"#1a4a2a"}}>· {sonGun}</span>}
+            {kaynakBilgi && <span style={{fontSize:9,color:"#1a3a2a"}}>· {kaynakBilgi}</span>}
           </div>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <span style={{fontSize:10,color:"#1a4a2a"}}>↻ {fmtCD(cd)}</span>
-            <button onClick={rssYukle} disabled={yukl} style={{background:"#0a1f14",border:"1px solid #00ff8835",color:"#00ff88",padding:"5px 12px",borderRadius:3,fontSize:10,cursor:"pointer",fontFamily:"inherit",letterSpacing:".08em"}}>
+            <button onClick={haberleriYukle} disabled={yukl}
+              style={{background:"#0a1f14",border:"1px solid #00ff8835",color:"#00ff88",padding:"5px 12px",borderRadius:3,fontSize:10,cursor:"pointer",fontFamily:"inherit",letterSpacing:".08em"}}>
               {yukl ? <Dots/> : "↻ YENİLE"}
             </button>
           </div>
@@ -213,16 +180,14 @@ export default function BorsaRadar() {
         {/* BODY */}
         <div style={{flex:1,display:"flex",overflow:"hidden",minHeight:0}}>
 
-          {/* LEFT — Haber paneli */}
+          {/* LEFT */}
           <div style={{width:310,flexShrink:0,borderRight:"1px solid #0a1a14",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-            {/* Sub-tabs */}
             <div style={{display:"flex",borderBottom:"1px solid #0a1a14",background:"#030709",flexShrink:0}}>
               <button className={`tb${tab==="akis"?" on":""}`} onClick={()=>setTab("akis")}>◉ Akış</button>
               <button className={`tb${tab==="manuel"?" on":""}`} onClick={()=>setTab("manuel")}>✎ Manuel</button>
               {haberler.length>0 && <span style={{fontSize:9,color:"#1a4a2a",marginLeft:"auto",alignSelf:"center",paddingRight:10}}>{haberler.length} haber</span>}
             </div>
 
-            {/* Haber listesi */}
             {tab==="akis" ? (
               <div style={{flex:1,overflowY:"auto",padding:5}}>
                 {yukl && haberler.length===0 && (
@@ -234,22 +199,24 @@ export default function BorsaRadar() {
                 )}
                 {hata && (
                   <div style={{padding:14,color:"#ff6644",fontSize:11,textAlign:"center",lineHeight:1.6}}>
-                    {hata}
+                    ⚠ {hata}
                     <br/>
-                    <button onClick={rssYukle} style={{marginTop:8,background:"#1a0a0a",border:"1px solid #ff4444",color:"#ff4444",padding:"3px 10px",borderRadius:3,cursor:"pointer",fontFamily:"inherit",fontSize:10}}>Tekrar Dene</button>
+                    <button onClick={haberleriYukle} style={{marginTop:8,background:"#1a0a0a",border:"1px solid #ff4444",color:"#ff4444",padding:"3px 10px",borderRadius:3,cursor:"pointer",fontFamily:"inherit",fontSize:10}}>
+                      Tekrar Dene
+                    </button>
                   </div>
                 )}
                 {haberler.map((h,i)=>(
                   <div key={h.id} className={`hi${secilen?.id===h.id?" sel":""}`}
-                    onClick={()=>{ setSecilen(h); setTab("akis"); analizEt(h.baslik+(h.ozet?" — "+h.ozet:"")); }}
+                    onClick={()=>{ setSecilen(h); analizEt(h.baslik+(h.ozet?" — "+h.ozet:"")); }}
                     style={{background:"#060c12",border:"1px solid #0a1820",borderRadius:3,padding:"8px 9px",marginBottom:4,animation:`fi .2s ease ${Math.min(i*.025,.5)}s both`}}
                   >
                     <div style={{display:"flex",gap:4,marginBottom:4,alignItems:"center",flexWrap:"wrap"}}>
                       <span style={{fontSize:8,padding:"1px 5px",borderRadius:2,background:KRENK[h.kategori]+"22",color:KRENK[h.kategori]||"#888",border:`1px solid ${KRENK[h.kategori]||"#444"}33`,letterSpacing:".03em",flexShrink:0}}>{h.kategori}</span>
                       <span style={{fontSize:8,padding:"1px 4px",borderRadius:2,background:ERENK[h.etki]+"22",color:ERENK[h.etki]||"#888",border:`1px solid ${ERENK[h.etki]||"#444"}33`,flexShrink:0}}>{h.etki}</span>
-                      <span style={{fontSize:10,marginLeft:"auto",color:h.yon==="POZİTİF"?"#00ff88":h.yon==="NEGATİF"?"#ff4444":"#ffa500",flexShrink:0}}>{h.yon==="POZİTİF"?"▲":h.yon==="NEGATİF"?"▼":"◆"}</span>
+                      <span style={{fontSize:10,marginLeft:"auto",flexShrink:0,color:h.yon==="POZİTİF"?"#00ff88":h.yon==="NEGATİF"?"#ff4444":"#ffa500"}}>{h.yon==="POZİTİF"?"▲":h.yon==="NEGATİF"?"▼":"◆"}</span>
                     </div>
-                    <div style={{fontSize:11,color:secilen?.id===h.id?"#d0eed0":"#8ab0a0",lineHeight:1.4,marginBottom:3}}>{h.baslik}</div>
+                    <div style={{fontSize:11,lineHeight:1.4,marginBottom:3,color:secilen?.id===h.id?"#d0eed0":"#8ab0a0"}}>{h.baslik}</div>
                     <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#2a5a3a"}}>
                       <span>{h.kaynak}</span><span>{h.zaman}</span>
                     </div>
@@ -257,31 +224,29 @@ export default function BorsaRadar() {
                 ))}
               </div>
             ) : (
-              /* Manuel giriş */
               <div style={{flex:1,display:"flex",flexDirection:"column",padding:10,gap:8,overflow:"auto"}}>
                 <div style={{fontSize:10,color:"#2a5a3a",letterSpacing:".12em"}}>▸ KENDİ HABERİNİ GİR</div>
                 <textarea value={manuel} onChange={e=>setManuel(e.target.value)}
                   onKeyDown={e=>{ if(e.key==="Enter"&&e.ctrlKey&&manuel.trim()){setSecilen(null);analizEt(manuel);} }}
-                  placeholder={"Haber veya gelişme yaz...\n\nÖrn: Hürmüz Boğazı kapandı\nÖrn: Fed 50 baz puan artırdı\nÖrn: NVIDIA yeni GPU tanıttı"}
+                  placeholder={"Haber yaz...\n\nÖrn: Hürmüz Boğazı kapandı\nÖrn: Fed 50 baz puan artırdı"}
                   style={{flex:1,minHeight:120,background:"#060c12",border:"1px solid #0a2a1a",color:"#c8d8c8",borderRadius:3,padding:10,fontSize:12,resize:"none",fontFamily:"inherit",lineHeight:1.6}}
                 />
-                <button onClick={()=>{ if(manuel.trim()){setSecilen(null);analizEt(manuel);} }} disabled={!manuel.trim()||analizYuk}
+                <button onClick={()=>{ if(manuel.trim()){setSecilen(null);analizEt(manuel);}}} disabled={!manuel.trim()||analizYuk}
                   style={{background:"#0a2a1a",border:"1px solid #00ff88",color:"#00ff88",padding:"8px",borderRadius:3,fontSize:11,cursor:"pointer",fontFamily:"inherit",letterSpacing:".12em",fontWeight:700,opacity:(!manuel.trim()||analizYuk)?0.5:1}}>
                   ◈ ANALİZ ET
                 </button>
-                <div style={{fontSize:9,color:"#1a3a2a",marginTop:4}}>Hızlı örnekler:</div>
+                <div style={{fontSize:9,color:"#1a3a2a",marginTop:2}}>Hızlı örnekler:</div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                  {["Hürmüz kapandı","Fed faiz artırdı","NVIDIA rekor","TCMB faiz indirdi","İran-İsrail savaşı","Altın rekor","Petrol 120$","BTC 100k","Deprem İstanbul","Çin-Tayvan","Türkiye seçim","Rusya doğalgaz kesti"].map(t=>(
-                    <button key={t} className="qt" onClick={()=>{ setManuel(t); setSecilen(null); analizEt(t); }}>{t}</button>
+                  {["Hürmüz kapandı","Fed faiz artırdı","NVIDIA rekor","TCMB faiz indirdi","İran-İsrail savaşı","Altın rekor","Petrol 120$","BTC 100k","Deprem İstanbul","Rusya doğalgaz kesti","Çin-Tayvan","Türkiye seçim"].map(t=>(
+                    <button key={t} className="qt" onClick={()=>{ setManuel(t);setSecilen(null);analizEt(t); }}>{t}</button>
                   ))}
                 </div>
               </div>
             )}
           </div>
 
-          {/* RIGHT — Analiz paneli */}
+          {/* RIGHT */}
           <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
-            {/* Başlık çubuğu */}
             <div style={{padding:"7px 14px",borderBottom:"1px solid #0a1a14",background:"#030709",flexShrink:0,display:"flex",alignItems:"center",gap:8,minHeight:34}}>
               {secilen ? (
                 <>
@@ -293,8 +258,6 @@ export default function BorsaRadar() {
               )}
               {analizYuk && <span style={{marginLeft:"auto",flexShrink:0}}><Dots/></span>}
             </div>
-
-            {/* İçerik */}
             <div style={{flex:1,overflowY:"auto",padding:18}}>
               {!goster && !analizYuk && (
                 <div style={{height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:"#1a3a2a",textAlign:"center",gap:10}}>
@@ -323,8 +286,8 @@ export default function BorsaRadar() {
 
         {/* FOOTER */}
         <div style={{padding:"5px 14px",borderTop:"1px solid #0a1a14",background:"#030709",display:"flex",justifyContent:"space-between",fontSize:9,color:"#1a3a2a",flexShrink:0,flexWrap:"wrap",gap:4}}>
-          <span>Kaynaklar: BBC · Reuters · CNBC · Yahoo Finance · WSJ · Investing.com</span>
-          <span>⚠ Bu uygulama yatırım tavsiyesi vermez</span>
+          <span>Kaynaklar: BBC · Reuters · CNBC · Yahoo Finance · WSJ · Bloomberg</span>
+          <span>⚠ Yatırım tavsiyesi değildir</span>
         </div>
       </div>
     </>
