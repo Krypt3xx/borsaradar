@@ -21,7 +21,7 @@ En güçlü 1-2 öneri + gerekçe
 
 Türkçe, net, somut rakamlar. ⚠️ Yatırım tavsiyesi değildir.`;
 
-// ── Claude (Anthropic) ──────────────────────────────────────────────────────
+// ── Claude → claude-haiku-3-5 (en ucuz, ~$0.001/analiz) ──────────────────
 async function callClaude(metin, apiKey) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -31,19 +31,19 @@ async function callClaude(metin, apiKey) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-3-5-haiku-20241022",
-      max_tokens: 1200,
+      model: "claude-haiku-4-5",   // En ucuz Claude modeli
+      max_tokens: 1000,
       system: SYSTEM_PROMPT,
-      messages: [{ role:"user", content:`Analiz et:\n\n"${metin}"` }],
+      messages: [{ role: "user", content: `Analiz et:\n\n"${metin}"` }],
     }),
     signal: AbortSignal.timeout(30000),
   });
   const d = await r.json();
   if (!r.ok) throw new Error(d?.error?.message || `Claude HTTP ${r.status}`);
-  return d.content?.map(b=>b.text||"").join("") || "";
+  return d.content?.map(b => b.text || "").join("") || "";
 }
 
-// ── ChatGPT (OpenAI) ────────────────────────────────────────────────────────
+// ── ChatGPT → gpt-4o-mini (ucuz, $5 kredi uzun sürer) ────────────────────
 async function callGPT(metin, apiKey) {
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -53,10 +53,10 @@ async function callGPT(metin, apiKey) {
     },
     body: JSON.stringify({
       model: "gpt-4o-mini",
-      max_tokens: 1200,
+      max_tokens: 1000,
       messages: [
-        { role:"system", content: SYSTEM_PROMPT },
-        { role:"user",   content:`Analiz et:\n\n"${metin}"` },
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user",   content: `Analiz et:\n\n"${metin}"` },
       ],
     }),
     signal: AbortSignal.timeout(30000),
@@ -66,56 +66,85 @@ async function callGPT(metin, apiKey) {
   return d.choices?.[0]?.message?.content || "";
 }
 
-// ── Gemini (Google) ─────────────────────────────────────────────────────────
+// ── Gemini → gemini-2.0-flash-lite (ücretsiz tier var) ───────────────────
 async function callGemini(metin, apiKey) {
-  const r = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts:[{ text: SYSTEM_PROMPT }] },
-        contents: [{ role:"user", parts:[{ text:`Analiz et:\n\n"${metin}"` }] }],
-        generationConfig: { temperature:0.7, maxOutputTokens:1200 },
-      }),
-      signal: AbortSignal.timeout(30000),
+  // Sırayla dene: lite → flash → pro
+  const modeller = [
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+  ];
+
+  for (const model of modeller) {
+    try {
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+            contents: [{ role: "user", parts: [{ text: `Analiz et:\n\n"${metin}"` }] }],
+            generationConfig: { temperature: 0.7, maxOutputTokens: 1000 },
+          }),
+          signal: AbortSignal.timeout(30000),
+        }
+      );
+      const d = await r.json();
+      // Kota hatası veya model bulunamadı → bir sonrakini dene
+      if (!r.ok) {
+        const errMsg = d?.error?.message || "";
+        if (errMsg.includes("quota") || errMsg.includes("not found") || errMsg.includes("not supported")) {
+          continue;
+        }
+        throw new Error(errMsg || `Gemini HTTP ${r.status}`);
+      }
+      const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      if (text) return text;
+    } catch (e) {
+      // Son model de başarısız olduysa fırlat
+      if (model === modeller[modeller.length - 1]) throw e;
     }
-  );
-  const d = await r.json();
-  if (!r.ok) throw new Error(d?.error?.message || `Gemini HTTP ${r.status}`);
-  return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  }
+  throw new Error("Tüm Gemini modelleri kullanılamıyor. API key kotası dolmuş olabilir.");
 }
 
-// ── HANDLER ─────────────────────────────────────────────────────────────────
+// ── HANDLER ──────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error:"Method not allowed" });
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const { metin } = req.body;
-  if (!metin) return res.status(400).json({ error:"metin boş" });
+  if (!metin) return res.status(400).json({ error: "metin boş" });
 
   const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
   const OPENAI_KEY    = process.env.OPENAI_API_KEY;
   const GEMINI_KEY    = process.env.GEMINI_API_KEY;
 
-  // 3 AI'ı paralel çalıştır
-  const [claudeResult, gptResult, geminiResult] = await Promise.allSettled([
-    ANTHROPIC_KEY ? callClaude(metin, ANTHROPIC_KEY) : Promise.reject(new Error("ANTHROPIC_API_KEY tanımlı değil")),
-    OPENAI_KEY    ? callGPT(metin, OPENAI_KEY)       : Promise.reject(new Error("OPENAI_API_KEY tanımlı değil")),
-    GEMINI_KEY    ? callGemini(metin, GEMINI_KEY)    : Promise.reject(new Error("GEMINI_API_KEY tanımlı değil")),
+  const [claudeR, gptR, geminiR] = await Promise.allSettled([
+    ANTHROPIC_KEY
+      ? callClaude(metin, ANTHROPIC_KEY)
+      : Promise.reject(new Error("ANTHROPIC_API_KEY eksik — Vercel Environment Variables'a ekle")),
+    OPENAI_KEY
+      ? callGPT(metin, OPENAI_KEY)
+      : Promise.reject(new Error("OPENAI_API_KEY eksik — Vercel Environment Variables'a ekle")),
+    GEMINI_KEY
+      ? callGemini(metin, GEMINI_KEY)
+      : Promise.reject(new Error("GEMINI_API_KEY eksik — Vercel Environment Variables'a ekle")),
   ]);
 
   res.status(200).json({
     claude: {
-      text:  claudeResult.status==="fulfilled" ? claudeResult.value : null,
-      error: claudeResult.status==="rejected"  ? claudeResult.reason?.message : null,
+      text:  claudeR.status === "fulfilled" ? claudeR.value : null,
+      error: claudeR.status === "rejected"  ? claudeR.reason?.message : null,
     },
     gpt: {
-      text:  gptResult.status==="fulfilled" ? gptResult.value : null,
-      error: gptResult.status==="rejected"  ? gptResult.reason?.message : null,
+      text:  gptR.status === "fulfilled" ? gptR.value : null,
+      error: gptR.status === "rejected"  ? gptR.reason?.message : null,
     },
     gemini: {
-      text:  geminiResult.status==="fulfilled" ? geminiResult.value : null,
-      error: geminiResult.status==="rejected"  ? geminiResult.reason?.message : null,
+      text:  geminiR.status === "fulfilled" ? geminiR.value : null,
+      error: geminiR.status === "rejected"  ? geminiR.reason?.message : null,
     },
   });
 }
