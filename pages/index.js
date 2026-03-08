@@ -50,9 +50,9 @@ const ERENK = {
 
 // AI renk teması
 const AI_TEMA = {
-  claude: { isim:"Claude", renk:"#c07ae0", bg:"#180e26", border:"#3a1e60", logo:"✦" },
-  gpt:    { isim:"ChatGPT", renk:"#10a37f", bg:"#061a14", border:"#0e3a2a", logo:"⬡" },
-  gemini: { isim:"Gemini", renk:"#4a8af0", bg:"#0a1428", border:"#1a3466", logo:"◈" },
+  claude: { isim:"Claude Haiku",  renk:"#c07ae0", bg:"#180e26", border:"#3a1e60", logo:"✦", alt:"Anthropic" },
+  gpt:    { isim:"GPT-4o Mini",   renk:"#10a37f", bg:"#061a14", border:"#0e3a2a", logo:"⬡", alt:"OpenAI" },
+  gemini: { isim:"Llama 3.3 70B", renk:"#4a8af0", bg:"#0a1428", border:"#1a3466", logo:"🦙", alt:"Groq · Ücretsiz" },
 };
 
 function md(text) {
@@ -472,11 +472,15 @@ export default function BorsaRadar() {
                           style={{
                             color: aktifAI===key ? ai.renk : "#3a5060",
                             borderBottomColor: aktifAI===key ? ai.renk : "transparent",
+                            display:"flex", flexDirection:"column", alignItems:"flex-start", padding:"7px 14px",
                           }}>
-                          <span style={{marginRight:5}}>{ai.logo}</span>
-                          {ai.isim}
-                          {analizYukl[key] && <span style={{marginLeft:6}}><Dots color={ai.renk} size={4}/></span>}
-                          {!analizYukl[key] && analizler[key] && <span style={{marginLeft:6,fontSize:10,color:"#3a6050"}}>✓</span>}
+                          <div style={{display:"flex",alignItems:"center",gap:5}}>
+                            <span>{ai.logo}</span>
+                            <span>{ai.isim}</span>
+                            {analizYukl[key] && <Dots color={ai.renk} size={4}/>}
+                            {!analizYukl[key] && analizler[key] && <span style={{fontSize:10,color:"#3a7050"}}>✓</span>}
+                          </div>
+                          <div style={{fontSize:9,color: aktifAI===key ? ai.renk+"99" : "#1e3040", marginTop:1, letterSpacing:".02em"}}>{ai.alt}</div>
                         </button>
                       ))}
                       {analizBaslik && (

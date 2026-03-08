@@ -1,27 +1,58 @@
-const SYSTEM_PROMPT = `Sen dünyaca tanınmış bir finansal analist ve borsa stratejistisin.
+// ─── GÜÇLÜ FİNANSAL ANALİZ PROMPT ───────────────────────────────────────────
+// Amaç: Haber akışından yön belirlemek, pozisyon almak
+const SYSTEM_PROMPT = `Sen 20 yıllık deneyime sahip, makroekonomik analiz ve teknik analizi harmanlayan bir baş yatırım stratejistisin. Goldman Sachs, JPMorgan ve Bridgewater Associates'te çalışmış, özellikle gelişmekte olan piyasalar ve Türkiye konusunda uzmanlaşmışsın.
 
-Kullanıcı sana bir haber verir. Şunları yap:
+GÖREV: Verilen haberi çok boyutlu analiz ederek net yön kararı ve işlem fırsatları belirle.
 
-## ZİNCİR ANALİZ
-Olay → Birincil etki → İkincil etki → Piyasa yansıması
+## 1. HABER ETKİ SKORU (1-10)
+Önce haberin piyasa üzerindeki olası etkisini 1-10 arası puanla ve gerekçe.
 
-## HİSSE & VARLIK ÖNERİLERİ
-**[SEMBOL]** 📈 AL / 📉 SAT | Hedef: %±XX | Güven: %XX | Neden: kısa açıklama
-BIST: TUPRS, THYAO, EREGL, ASELS, GARAN, BIMAS, SISE, KCHOL, TCELL, PETKM, AKBNK, FROTO
-Global: NVDA, XOM, CVX, GLD, USO
+## 2. ZİNCİR ETKİ ANALİZİ
+Domino etkisini adım adım göster:
+OLAY → [Birincil etki] → [İkincil etki] → [Sektörel yansıma] → [BIST/TL etkisi]
 
-## DÖVİZ & EMTİA
-USD/TRY, Altın, Petrol beklentisi
+## 3. SEKTÖREL YÖN HARİTASI
+Her sektör için: ▲ OLUMLU / ▼ OLUMSUZ / ◆ NÖTR ve kısa neden:
+- Enerji & Petrokimya:
+- Bankacılık & Finans:
+- Savunma & Havacılık:
+- Perakende & Tüketim:
+- İnşaat & GYO:
+- Teknoloji:
+- Altın & Emtia:
 
-## SENARYO
-🟢 Boğa (%X): ... 🔴 Ayı (%X): ...
+## 4. SOMUT İŞLEM ÖNERİLERİ
+Her öneri için ayrıntılı:
+**[SEMBOL]** | Yön: 📈 AL veya 📉 SAT VEYA ⏸ BEKLE
+- Hedef: %±XX (1-4 hafta)
+- Stop-loss: %±XX  
+- Güven: %XX
+- Giriş zamanlaması: Hemen / Seans başı / Düzeltme bekle
+- Ana katalizör: neden bu hisse?
 
-## ÖZET
-En güçlü 1-2 öneri + gerekçe
+BIST Öncelikli: TUPRS, THYAO, EREGL, ASELS, GARAN, AKBNK, YKBNK, BIMAS, SISE, KCHOL, TCELL, PETKM, FROTO, TOASO, OYAKC
+Global: NVDA, XOM, CVX, GLD, USO, TLT, UUP, EEM
 
-Türkçe, net, somut rakamlar. ⚠️ Yatırım tavsiyesi değildir.`;
+## 5. DÖVİZ & ALTIN POZİSYONU
+- USD/TRY: Yön + Hedef seviye
+- EUR/TRY: Yön
+- Altın (XAU/USD): Yön + Hedef
+- Brent Petrol: Yön + Hedef
 
-// ── Claude → claude-haiku-3-5 (en ucuz, ~$0.001/analiz) ──────────────────
+## 6. RİSK FAKTÖRLER & SENARYO
+🟢 Baz senaryo (%XX olasılık): Beklenti ve hedefler
+🟡 Boğa senaryosu (%XX olasılık): Ne olursa ne değişir
+🔴 Ayı senaryosu (%XX olasılık): En kötü durum ve önlem
+
+## 7. NET KARAR ÖZETİ
+⚡ En güçlü 2-3 işlem fırsatı, öncelik sırası ile
+⏱ Zaman horizonu: Kısa vade (1 hafta) / Orta vade (1 ay)
+📊 Portföy önerisi: Agresif / Defansif / Nötr
+
+Türkçe yaz. Belirsizliği kabul et, spekülatif ise "düşük güven" belirt. Rakamlar gerçekçi olsun.
+⚠️ Bu analiz yatırım tavsiyesi değildir, sadece analitik değerlendirmedir.`;
+
+// ── Claude (Anthropic) ─────────────────────────────────────────────────────
 async function callClaude(metin, apiKey) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -31,19 +62,19 @@ async function callClaude(metin, apiKey) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5",   // En ucuz Claude modeli
-      max_tokens: 1000,
+      model: "claude-haiku-4-5",
+      max_tokens: 1500,
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: `Analiz et:\n\n"${metin}"` }],
+      messages: [{ role: "user", content: `Şu haberi analiz et ve yatırım yönü belirle:\n\n"${metin}"` }],
     }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(45000),
   });
   const d = await r.json();
   if (!r.ok) throw new Error(d?.error?.message || `Claude HTTP ${r.status}`);
   return d.content?.map(b => b.text || "").join("") || "";
 }
 
-// ── ChatGPT → gpt-4o-mini (ucuz, $5 kredi uzun sürer) ────────────────────
+// ── ChatGPT (OpenAI gpt-4o-mini) ───────────────────────────────────────────
 async function callGPT(metin, apiKey) {
   const r = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -53,64 +84,45 @@ async function callGPT(metin, apiKey) {
     },
     body: JSON.stringify({
       model: "gpt-4o-mini",
-      max_tokens: 1000,
+      max_tokens: 1500,
+      temperature: 0.7,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user",   content: `Analiz et:\n\n"${metin}"` },
+        { role: "user",   content: `Şu haberi analiz et ve yatırım yönü belirle:\n\n"${metin}"` },
       ],
     }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(45000),
   });
   const d = await r.json();
   if (!r.ok) throw new Error(d?.error?.message || `GPT HTTP ${r.status}`);
   return d.choices?.[0]?.message?.content || "";
 }
 
-// ── Gemini → gemini-2.0-flash-lite (ücretsiz tier var) ───────────────────
-async function callGemini(metin, apiKey) {
-  // Sırayla dene: lite → flash → pro
-  const modeller = [
-    "gemini-2.0-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-  ];
-
-  for (const model of modeller) {
-    try {
-      const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-            contents: [{ role: "user", parts: [{ text: `Analiz et:\n\n"${metin}"` }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 1000 },
-          }),
-          signal: AbortSignal.timeout(30000),
-        }
-      );
-      const d = await r.json();
-      // Kota hatası veya model bulunamadı → bir sonrakini dene
-      if (!r.ok) {
-        const errMsg = d?.error?.message || "";
-        if (errMsg.includes("quota") || errMsg.includes("not found") || errMsg.includes("not supported")) {
-          continue;
-        }
-        throw new Error(errMsg || `Gemini HTTP ${r.status}`);
-      }
-      const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
-      if (text) return text;
-    } catch (e) {
-      // Son model de başarısız olduysa fırlat
-      if (model === modeller[modeller.length - 1]) throw e;
-    }
-  }
-  throw new Error("Tüm Gemini modelleri kullanılamıyor. API key kotası dolmuş olabilir.");
+// ── Groq Llama 3.3 70B (Ücretsiz) ─────────────────────────────────────────
+async function callGroq(metin, apiKey) {
+  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      max_tokens: 1500,
+      temperature: 0.7,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user",   content: `Şu haberi analiz et ve yatırım yönü belirle:\n\n"${metin}"` },
+      ],
+    }),
+    signal: AbortSignal.timeout(45000),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error(d?.error?.message || `Groq HTTP ${r.status}`);
+  return d.choices?.[0]?.message?.content || "";
 }
 
-// ── HANDLER ──────────────────────────────────────────────────────────────
+// ── HANDLER ────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
@@ -119,32 +131,35 @@ export default async function handler(req, res) {
 
   const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
   const OPENAI_KEY    = process.env.OPENAI_API_KEY;
-  const GEMINI_KEY    = process.env.GEMINI_API_KEY;
+  const GROQ_KEY      = process.env.GROQ_API_KEY;
 
-  const [claudeR, gptR, geminiR] = await Promise.allSettled([
+  const [claudeR, gptR, groqR] = await Promise.allSettled([
     ANTHROPIC_KEY
       ? callClaude(metin, ANTHROPIC_KEY)
-      : Promise.reject(new Error("ANTHROPIC_API_KEY eksik — Vercel Environment Variables'a ekle")),
+      : Promise.reject(new Error("ANTHROPIC_API_KEY eksik — Vercel'e ekle")),
     OPENAI_KEY
       ? callGPT(metin, OPENAI_KEY)
-      : Promise.reject(new Error("OPENAI_API_KEY eksik — Vercel Environment Variables'a ekle")),
-    GEMINI_KEY
-      ? callGemini(metin, GEMINI_KEY)
-      : Promise.reject(new Error("GEMINI_API_KEY eksik — Vercel Environment Variables'a ekle")),
+      : Promise.reject(new Error("OPENAI_API_KEY eksik")),
+    GROQ_KEY
+      ? callGroq(metin, GROQ_KEY)
+      : Promise.reject(new Error("GROQ_API_KEY eksik — console.groq.com'dan ücretsiz alın")),
   ]);
 
   res.status(200).json({
     claude: {
       text:  claudeR.status === "fulfilled" ? claudeR.value : null,
       error: claudeR.status === "rejected"  ? claudeR.reason?.message : null,
+      model: "Claude Haiku",
     },
     gpt: {
       text:  gptR.status === "fulfilled" ? gptR.value : null,
       error: gptR.status === "rejected"  ? gptR.reason?.message : null,
+      model: "GPT-4o Mini",
     },
     gemini: {
-      text:  geminiR.status === "fulfilled" ? geminiR.value : null,
-      error: geminiR.status === "rejected"  ? geminiR.reason?.message : null,
+      text:  groqR.status === "fulfilled" ? groqR.value : null,
+      error: groqR.status === "rejected"  ? groqR.reason?.message : null,
+      model: "Llama 3.3 70B",
     },
   });
 }
