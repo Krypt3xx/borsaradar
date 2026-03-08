@@ -1,32 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Head from "next/head";
 
-const ANALYSIS_SYSTEM = `Sen dünyaca tanınmış bir finansal analist ve borsa stratejistisin. Goldman Sachs seviyesinde analiz yapıyorsun.
-
-Kullanıcı sana bir haber verir. Şunları yap:
-
-## ZİNCİR ANALİZ
-Olay → Birincil etki → İkincil etki → Piyasa yansıması (→ işaretiyle göster)
-
-## HİSSE & VARLIK ÖNERİLERİ
-Her öneri için:
-**[SEMBOL]** 📈 AL / 📉 SAT | Hedef: %±XX | Güven: %XX | Neden: kısa açıklama
-
-BIST önce: TUPRS, THYAO, EREGL, ASELS, GARAN, BIMAS, SISE, KCHOL, TCELL, PETKM, AKBNK, FROTO
-Global: NVDA, XOM, CVX, GLD, USO, TLT, SPY
-
-## DÖVİZ & EMTİA
-USD/TRY, Altın (XAU/USD), Petrol (Brent) beklentisi
-
-## SENARYO
-🟢 Boğa (%X olasılık): ...
-🔴 Ayı (%X olasılık): ...
-
-## ÖZET
-En güçlü 1-2 öneri + kısa gerekçe
-
-Türkçe, net, somut rakamlar.
-⚠️ Bu analiz yatırım tavsiyesi değildir.`;
 
 const KRENK = {
   "JEOPOLİTİK":"#ff6b6b","ENERJİ":"#ffa500","MERKEZ BANKASI":"#00e5ff",
@@ -98,16 +72,11 @@ export default function BorsaRadar() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1500,
-          system: ANALYSIS_SYSTEM,
-          messages: [{ role:"user", content:`Analiz et:\n\n"${metin}"` }],
-        }),
+        body: JSON.stringify({ metin }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      const txt = data.content?.map(b => b.text||"").join("") || "Analiz alınamadı.";
+      const txt = data.text || "Analiz alınamadı.";
       let i = 0;
       const iv = setInterval(() => {
         i += 18; setAnaliz(txt.slice(0,i));
