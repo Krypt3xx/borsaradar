@@ -30,9 +30,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({ error: "GEMINI_API_KEY tanimli degil. Vercel Environment Variables kontrol edin." });
+    return res.status(500).json({ error: "OPENAI_API_KEY tanimli degil. Vercel Environment Variables kontrol edin." });
   }
 
   const { metin } = req.body;
@@ -41,26 +41,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: {
-            parts: [{ text: SYSTEM_PROMPT }]
-          },
-          contents: [{
-            role: "user",
-            parts: [{ text: `Analiz et:\n\n"${metin}"` }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 1500,
-          }
-        }),
-      }
-    );
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        max_tokens: 1500,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user",   content: `Analiz et:\n\n"${metin}"` },
+        ],
+      }),
+    });
 
     const data = await response.json();
 
@@ -69,7 +64,7 @@ export default async function handler(req, res) {
       return res.status(response.status).json({ error: mesaj });
     }
 
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "Analiz alinamadi.";
+    const text = data?.choices?.[0]?.message?.content || "Analiz alinamadi.";
     res.status(200).json({ text });
 
   } catch (error) {
