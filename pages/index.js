@@ -100,6 +100,18 @@ export default function BorsaRadar() {
   const [sonGun,       setSonGun]       = useState(null);
   const cdRef = useRef(null);
 
+  // Korelasyon hafızası
+  const [korelasyon,   setKorelasyon]   = useState({});
+  // Sabah bülteni
+  const [bulten,       setBulten]       = useState({llama:null,gpt:null,claude:null});
+  const [bultenYukl,   setBultenYukl]   = useState(false);
+  const [bultenAktif,  setBultenAktif]  = useState("llama");
+  // Teknik analiz
+  const [teknikSembol, setTeknikSembol] = useState("");
+  const [teknikVeri,   setTeknikVeri]   = useState(null);
+  const [teknikYukl,   setTeknikYukl]   = useState(false);
+  const [teknikHata,   setTeknikHata]   = useState("");
+
   const fiyatYukle = useCallback(async () => {
     try {
       const r = await fetch("/api/prices");
@@ -163,11 +175,70 @@ export default function BorsaRadar() {
         tarih: new Date().toLocaleDateString("tr-TR"),
       };
       setGecmis(prev => [kayit, ...prev.slice(0,19)]);
+      // Korelasyon güncelle
+      const kategori = secilen?.kategori || kategoriBul(metin);
+      const tumAnaliz = [d.claude?.text, d.gpt?.text, d.gemini?.text].filter(Boolean).join(" ");
+      korelasyonGuncelle(kategori, tumAnaliz);
     } catch(e) {
       setAnalizler({ claude:`❌ ${e.message}`, gpt:`❌ ${e.message}`, gemini:`❌ ${e.message}` });
     }
     setAnalizYukl({ claude:false, gpt:false, gemini:false });
   }, [analizYukl]);
+
+  // Korelasyon: analiz sonucundan hisse sembollerini çıkar ve kaydet
+  const korelasyonGuncelle = useCallback((kategori, analizMetni) => {
+    if (!kategori || !analizMetni) return;
+    const bistSemboller = ["TUPRS","THYAO","EREGL","ASELS","GARAN","AKBNK","YKBNK","BIMAS","SISE","KCHOL","TCELL","PETKM","FROTO","TOASO","OYAKC","PGSUS","TAVHL","EKGYO","ISCTR","TTKOM"];
+    const bulunan = bistSemboller.filter(s => analizMetni.includes(s));
+    if (!bulunan.length) return;
+    const yon = analizMetni.includes("📈 AL") ? 1 : analizMetni.includes("📉 SAT") ? -1 : 0;
+    setKorelasyon(prev => {
+      const yeni = { ...prev };
+      bulunan.forEach(s => {
+        if (!yeni[kategori]) yeni[kategori] = {};
+        if (!yeni[kategori][s]) yeni[kategori][s] = { al:0, sat:0, toplam:0 };
+        yeni[kategori][s].toplam++;
+        if (yon === 1) yeni[kategori][s].al++;
+        if (yon === -1) yeni[kategori][s].sat++;
+      });
+      return yeni;
+    });
+  }, []);
+
+  // Sabah bülteni üret
+  const bultenUret = useCallback(async () => {
+    if (!haberler.length || bultenYukl) return;
+    setBultenYukl(true);
+    setBulten({llama:null,gpt:null,claude:null});
+    setSagTab("bulten");
+    try {
+      const r = await fetch("/api/bulten", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ haberler }),
+      });
+      const d = await r.json();
+      setBulten({
+        llama:  d.llama?.text  || (d.llama?.error  ? `❌ ${d.llama.error}`  : null),
+        gpt:    d.gpt?.text    || (d.gpt?.error    ? `❌ ${d.gpt.error}`    : null),
+        claude: d.claude?.text || (d.claude?.error ? `❌ ${d.claude.error}` : null),
+      });
+    } catch(e) { setBulten({llama:`❌ ${e.message}`,gpt:null,claude:null}); }
+    setBultenYukl(false);
+  }, [haberler, bultenYukl]);
+
+  // Teknik analiz
+  const teknikAnalizEt = useCallback(async (sembol) => {
+    if (!sembol || teknikYukl) return;
+    setTeknikYukl(true); setTeknikVeri(null); setTeknikHata("");
+    try {
+      const r = await fetch(`/api/teknik?sembol=${encodeURIComponent(sembol)}`);
+      const d = await r.json();
+      if (d.error) throw new Error(d.error);
+      setTeknikVeri(d);
+    } catch(e) { setTeknikHata(e.message); }
+    setTeknikYukl(false);
+  }, [teknikYukl]);
 
   useEffect(() => {
     haberleriYukle(); fiyatYukle(); takvimYukle();
@@ -176,11 +247,13 @@ export default function BorsaRadar() {
     cdRef.current = setInterval(() => setCd(c => c>0?c-1:300), 1000);
     try { const p=localStorage.getItem("br_portfoy"); if(p) setPortfoy(JSON.parse(p)); } catch {}
     try { const g=localStorage.getItem("br_gecmis");  if(g) setGecmis(JSON.parse(g));  } catch {}
+    try { const k=localStorage.getItem("br_korel");   if(k) setKorelasyon(JSON.parse(k)); } catch {}
     return () => { clearInterval(r1); clearInterval(r2); clearInterval(cdRef.current); };
   }, []);
 
   useEffect(() => { try{localStorage.setItem("br_portfoy", JSON.stringify(portfoy));}catch{} }, [portfoy]);
   useEffect(() => { try{localStorage.setItem("br_gecmis",  JSON.stringify(gecmis.slice(0,20)));}catch{} }, [gecmis]);
+  useEffect(() => { try{localStorage.setItem("br_korel",   JSON.stringify(korelasyon));}catch{} }, [korelasyon]);
 
   const hisseEkle = () => {
     if (!yeniHisse.sembol||!yeniHisse.adet||!yeniHisse.maliyet) return;
@@ -441,6 +514,11 @@ export default function BorsaRadar() {
               <button className={`tab${sagTab==="analiz"?" on":""}`} onClick={()=>setSagTab("analiz")}>
                 3 AI Analiz {analizDevam&&<Dots size={4} color="#4a9a6a"/>}
               </button>
+              <button className={`tab${sagTab==="teknik"?" on":""}`} onClick={()=>setSagTab("teknik")}>📊 Teknik</button>
+              <button className={`tab${sagTab==="bulten"?" on":""}`} onClick={()=>setSagTab("bulten")}>
+                📰 Bülten {bultenYukl&&<Dots size={4} color="#ffa040"/>}
+              </button>
+              <button className={`tab${sagTab==="korelasyon"?" on":""}`} onClick={()=>setSagTab("korelasyon")}>🔗 Korelasyon</button>
               <button className={`tab${sagTab==="gecmis"?" on":""}`} onClick={()=>setSagTab("gecmis")}>
                 Geçmiş{gecmis.length>0&&<span style={{background:"#0e2a1a",color:"#5aaa7a",borderRadius:3,padding:"0 5px",marginLeft:4,fontSize:10}}>{gecmis.length}</span>}
               </button>
@@ -516,6 +594,231 @@ export default function BorsaRadar() {
                       )}
                     </div>
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* TEKNİK ANALİZ */}
+            {sagTab==="teknik" && (
+              <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+                <div style={{padding:"10px 14px",borderBottom:"1px solid #1a2530",flexShrink:0,display:"flex",gap:8,alignItems:"center"}}>
+                  <input className="inp" style={{flex:1,maxWidth:180}}
+                    placeholder="Sembol gir: TUPRS, NVDA..."
+                    value={teknikSembol}
+                    onChange={e=>setTeknikSembol(e.target.value.toUpperCase())}
+                    onKeyDown={e=>e.key==="Enter"&&teknikAnalizEt(teknikSembol)}
+                  />
+                  <button className="btn-p" onClick={()=>teknikAnalizEt(teknikSembol)} disabled={!teknikSembol||teknikYukl} style={{padding:"7px 14px",fontSize:12}}>
+                    {teknikYukl?<Dots size={5}/>:"Analiz Et"}
+                  </button>
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                    {["TUPRS","THYAO","EREGL","GARAN","NVDA"].map(s=>(
+                      <button key={s} className="qtag" onClick={()=>{setTeknikSembol(s);teknikAnalizEt(s);}} style={{fontSize:10,padding:"4px 8px"}}>{s}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{flex:1,overflowY:"auto",padding:"14px 18px"}}>
+                  {teknikHata && <div style={{color:"#e07070",fontSize:12,padding:12,background:"#180808",border:"1px solid #3a1010",borderRadius:6}}>❌ {teknikHata}</div>}
+                  {teknikYukl && <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60%",gap:12}}><Dots/><div style={{fontSize:13,color:"#4a8a6a"}}>Teknik veriler hesaplanıyor...</div></div>}
+                  {teknikVeri && (() => {
+                    const t = teknikVeri;
+                    const rsiRenk = t.rsi>70?"#ff7070":t.rsi<30?"#50dd90":"#80cccc";
+                    const macdRenk = t.macd.histogram>0?"#50dd90":"#ff7070";
+                    const maxF = Math.max(...t.grafik.fiyatlar);
+                    const minF = Math.min(...t.grafik.fiyatlar);
+                    return (
+                      <div style={{animation:"fadein .3s ease"}}>
+                        {/* Fiyat + Trend */}
+                        <div style={{display:"flex",gap:10,marginBottom:14,alignItems:"flex-end"}}>
+                          <div>
+                            <div style={{fontSize:10,color:"#3a6050",fontWeight:600,textTransform:"uppercase",letterSpacing:".05em"}}>{t.sembol}</div>
+                            <div style={{fontSize:24,fontWeight:700,color:"#e0f0e8",fontFamily:"'JetBrains Mono',monospace"}}>{t.fiyat?.toFixed(2)}</div>
+                          </div>
+                          <div style={{padding:"4px 10px",borderRadius:5,fontSize:12,fontWeight:700,
+                            background:t.trend==="YÜKSELİŞ TRENDI"?"#0a2a14":t.trend==="DÜŞÜŞ TRENDI"?"#2a0a0a":"#1a1a2a",
+                            color:t.trend==="YÜKSELİŞ TRENDI"?"#50dd90":t.trend==="DÜŞÜŞ TRENDI"?"#ff7070":"#8090cc",
+                            border:`1px solid ${t.trend==="YÜKSELİŞ TRENDI"?"#1a5a30":t.trend==="DÜŞÜŞ TRENDI"?"#5a1a1a":"#2a2a5a"}`
+                          }}>{t.trend}</div>
+                        </div>
+
+                        {/* Mini grafik SVG */}
+                        <div style={{background:"#0d1520",border:"1px solid #1e2d38",borderRadius:6,padding:"10px 12px",marginBottom:12}}>
+                          <div style={{fontSize:10,color:"#3a6050",marginBottom:6,fontWeight:600}}>SON 30 GÜN</div>
+                          <svg width="100%" height="70" viewBox={`0 0 ${t.grafik.fiyatlar.length} 70`} preserveAspectRatio="none">
+                            <defs>
+                              <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#4a9a6a" stopOpacity="0.3"/>
+                                <stop offset="100%" stopColor="#4a9a6a" stopOpacity="0"/>
+                              </linearGradient>
+                            </defs>
+                            {(() => {
+                              const pts = t.grafik.fiyatlar.map((v,i)=>`${i},${70-((v-minF)/(maxF-minF||1))*65}`).join(" ");
+                              const son = t.grafik.fiyatlar.length-1;
+                              const alanPts = `0,70 ${pts} ${son},70`;
+                              return (<>
+                                <polygon points={alanPts} fill="url(#grad)"/>
+                                <polyline points={pts} fill="none" stroke="#4a9a6a" strokeWidth="1.5"/>
+                              </>);
+                            })()}
+                          </svg>
+                        </div>
+
+                        {/* RSI + MACD + MA kartları */}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
+                          {/* RSI */}
+                          <div style={{background:"#0d1520",border:"1px solid #1e2d38",borderRadius:6,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,color:"#3a6050",fontWeight:700,marginBottom:5,textTransform:"uppercase"}}>RSI (14)</div>
+                            <div style={{fontSize:22,fontWeight:700,color:rsiRenk,fontFamily:"'JetBrains Mono',monospace"}}>{t.rsi}</div>
+                            <div style={{fontSize:10,color:rsiRenk,marginTop:3}}>{t.rsiYorum}</div>
+                            <div style={{marginTop:6,height:4,borderRadius:2,background:"#1e2d38",overflow:"hidden"}}>
+                              <div style={{height:"100%",width:`${t.rsi}%`,background:rsiRenk,borderRadius:2}}/>
+                            </div>
+                          </div>
+                          {/* MACD */}
+                          <div style={{background:"#0d1520",border:"1px solid #1e2d38",borderRadius:6,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,color:"#3a6050",fontWeight:700,marginBottom:5,textTransform:"uppercase"}}>MACD</div>
+                            <div style={{fontSize:14,fontWeight:700,color:macdRenk,fontFamily:"'JetBrains Mono',monospace"}}>{t.macd.deger?.toFixed(3)}</div>
+                            <div style={{fontSize:9,color:"#3a6050",marginTop:2}}>Sinyal: {t.macd.signal?.toFixed(3)}</div>
+                            <div style={{fontSize:10,color:macdRenk,marginTop:3}}>{t.macdYorum}</div>
+                          </div>
+                          {/* MA */}
+                          <div style={{background:"#0d1520",border:"1px solid #1e2d38",borderRadius:6,padding:"10px 12px"}}>
+                            <div style={{fontSize:9,color:"#3a6050",fontWeight:700,marginBottom:5,textTransform:"uppercase"}}>ORTALMALAR</div>
+                            <div style={{fontSize:11,color:"#80b8c8",fontFamily:"'JetBrains Mono',monospace"}}>MA20: {t.ma20}</div>
+                            {t.ma50&&<div style={{fontSize:11,color:"#80b8c8",fontFamily:"'JetBrains Mono',monospace",marginTop:2}}>MA50: {t.ma50}</div>}
+                            <div style={{fontSize:9,color:"#3a6050",marginTop:4}}>Hacim: {t.hacim.yorum}</div>
+                          </div>
+                        </div>
+
+                        {/* Destek / Direnç */}
+                        <div style={{background:"#0d1520",border:"1px solid #1e2d38",borderRadius:6,padding:"12px 14px"}}>
+                          <div style={{fontSize:10,color:"#3a6050",fontWeight:600,marginBottom:8,textTransform:"uppercase"}}>Destek & Direnç Seviyeleri</div>
+                          <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                            {[
+                              {label:"Direnç 2",val:t.seviyeler.direnc2,renk:"#ff6060"},
+                              {label:"Direnç 1",val:t.seviyeler.direnc1,renk:"#ff9060"},
+                              {label:"Pivot",   val:t.seviyeler.pivot,  renk:"#80c0cc"},
+                              {label:"Destek 1",val:t.seviyeler.destek1,renk:"#60cc80"},
+                              {label:"Destek 2",val:t.seviyeler.destek2,renk:"#40aa60"},
+                            ].map(({label,val,renk})=>(
+                              <div key={label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 8px",borderRadius:4,background:label.includes("Pivot")?"#141e2a":"transparent"}}>
+                                <span style={{fontSize:11,color:renk,fontWeight:600}}>{label}</span>
+                                <span style={{fontSize:12,color:"#c0d8e0",fontFamily:"'JetBrains Mono',monospace",fontWeight:700}}>{val}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* SABAH BÜLTENİ */}
+            {sagTab==="bulten" && (
+              <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+                <div style={{padding:"8px 14px",borderBottom:"1px solid #1a2530",flexShrink:0,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:"#8a7040"}}>📰 Sabah Bülteni</div>
+                    <div style={{fontSize:10,color:"#3a4030"}}>{haberler.length} haber analiz edilecek</div>
+                  </div>
+                  <button className="btn-p" onClick={bultenUret} disabled={bultenYukl||!haberler.length}
+                    style={{padding:"7px 16px",fontSize:12,borderColor:"#5a6030",color:"#aab860",background:"#1a1e08"}}>
+                    {bultenYukl?<><Dots color="#aab860" size={5}/> Hazırlanıyor...</>:"🌅 Bülten Üret"}
+                  </button>
+                </div>
+                {/* AI seç */}
+                <div style={{display:"flex",borderBottom:"1px solid #1a2530",flexShrink:0,padding:"0 4px",background:"#0d1208"}}>
+                  {[
+                    {key:"llama",  isim:"Llama 3.3",    logo:"🦙", renk:"#c07ae0"},
+                    {key:"gpt",    isim:"GPT-4o Mini",  logo:"⬡",  renk:"#10a37f"},
+                    {key:"claude", isim:"Claude Haiku", logo:"✦",  renk:"#4a8af0"},
+                  ].map(ai=>(
+                    <button key={ai.key} className="ai-tab"
+                      onClick={()=>setBultenAktif(ai.key)}
+                      style={{color:bultenAktif===ai.key?ai.renk:"#3a5060",borderBottomColor:bultenAktif===ai.key?ai.renk:"transparent",padding:"7px 14px"}}>
+                      {ai.logo} {ai.isim}
+                      {bultenYukl&&<span style={{marginLeft:5}}><Dots color={ai.renk} size={4}/></span>}
+                      {!bultenYukl&&bulten[ai.key]&&<span style={{marginLeft:5,fontSize:9,color:"#3a7050"}}>✓</span>}
+                    </button>
+                  ))}
+                </div>
+                <div style={{flex:1,overflowY:"auto",padding:"16px 20px"}}>
+                  {!bulten.llama&&!bultenYukl&&(
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:12,textAlign:"center"}}>
+                      <div style={{fontSize:36,opacity:.15}}>📰</div>
+                      <div style={{fontSize:14,fontWeight:600,color:"#5a6040"}}>Günlük Sabah Bülteni</div>
+                      <div style={{fontSize:12,color:"#2a3020",lineHeight:1.7,maxWidth:300}}>
+                        Yukarıdaki "Bülten Üret" butonuna bas.<br/>3 AI son haberleri analiz edip<br/>sabah brifingini hazırlayacak.
+                      </div>
+                    </div>
+                  )}
+                  {bultenYukl&&!bulten[bultenAktif]&&(
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60%",gap:12}}>
+                      <Dots color="#aab860"/><div style={{fontSize:13,color:"#8a9050"}}>Sabah bülteni hazırlanıyor...</div>
+                    </div>
+                  )}
+                  {bulten[bultenAktif]&&(
+                    <div style={{animation:"fadein .3s ease",maxWidth:800}}>
+                      <div style={{fontSize:13,lineHeight:1.9,color:"#a8c4b0"}} dangerouslySetInnerHTML={{__html:md(bulten[bultenAktif])}}/>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* KORELASYON */}
+            {sagTab==="korelasyon" && (
+              <div style={{flex:1,overflowY:"auto",padding:"14px 16px"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600,color:"#3a7080"}}>🔗 Korelasyon Hafızası</div>
+                    <div style={{fontSize:10,color:"#2a4050",marginTop:2}}>Her analizde otomatik öğrenir — haber türü → hangi hisse önerildi</div>
+                  </div>
+                  <button className="btn-sm" onClick={()=>setKorelasyon({})} style={{borderColor:"#301010",color:"#cc6060",background:"#140808",fontSize:10}}>Sıfırla</button>
+                </div>
+                {Object.keys(korelasyon).length === 0 ? (
+                  <div style={{textAlign:"center",padding:40,color:"#1e3040",fontSize:12,lineHeight:1.8}}>
+                    Henüz korelasyon verisi yok.<br/>Haber analiz yaptıkça sistem otomatik öğrenir.<br/>
+                    <span style={{color:"#2a4a4a"}}>Her analizde "hangi kategori haberi → hangi hisse önerildi"<br/>istatistiği burada birikir.</span>
+                  </div>
+                ) : (
+                  Object.entries(korelasyon).map(([kategori, hisseler])=>{
+                    const kr = KRENK[kategori]||KRENK["GENEL"];
+                    const sirali = Object.entries(hisseler).sort((a,b)=>b[1].toplam-a[1].toplam);
+                    return (
+                      <div key={kategori} style={{background:"#101820",border:`1px solid ${kr.border}`,borderRadius:7,padding:"11px 13px",marginBottom:8}}>
+                        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:8}}>
+                          <span className="badge" style={{background:kr.bg,color:kr.text,border:`1px solid ${kr.border}`,fontSize:11}}>{kategori}</span>
+                          <span style={{fontSize:10,color:"#3a5060"}}>{sirali.length} hisse · {Object.values(hisseler).reduce((a,b)=>a+b.toplam,0)} analiz</span>
+                        </div>
+                        <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+                          {sirali.map(([sembol, data])=>{
+                            const alOran = data.toplam > 0 ? Math.round(data.al/data.toplam*100) : 0;
+                            return (
+                              <div key={sembol}
+                                onClick={()=>{setTeknikSembol(sembol);setSagTab("teknik");teknikAnalizEt(sembol);}}
+                                style={{background:"#0d1520",border:"1px solid #1e2d38",borderRadius:5,padding:"6px 10px",cursor:"pointer",transition:"border-color .12s",minWidth:90}}
+                                onMouseEnter={e=>e.currentTarget.style.borderColor="#3a6070"}
+                                onMouseLeave={e=>e.currentTarget.style.borderColor="#1e2d38"}
+                              >
+                                <div style={{fontSize:12,fontWeight:700,color:"#70d8a0",fontFamily:"'JetBrains Mono',monospace"}}>{sembol}</div>
+                                <div style={{fontSize:9,color:"#3a6050",marginTop:2}}>{data.toplam}x analiz</div>
+                                <div style={{display:"flex",gap:4,marginTop:4}}>
+                                  <span style={{fontSize:9,color:"#50cc80",background:"#0a2010",padding:"1px 5px",borderRadius:3}}>AL {alOran}%</span>
+                                  <span style={{fontSize:9,color:"#cc5050",background:"#200808",padding:"1px 5px",borderRadius:3}}>SAT {100-alOran}%</span>
+                                </div>
+                                <div style={{marginTop:5,height:3,borderRadius:2,background:"#200808",overflow:"hidden"}}>
+                                  <div style={{height:"100%",width:`${alOran}%`,background:"#50cc80",borderRadius:2}}/>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             )}
