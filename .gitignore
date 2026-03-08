@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Production
+/.next/
+/out/
+
+# ENV - API KEY BURAYA GİRMEZ, VERCEL PANELİNDEN EKLE
+.env.local
+.env*.local
+
+# Debug
+npm-debug.log*
+.DS_Store
