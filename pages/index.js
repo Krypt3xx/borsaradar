@@ -117,16 +117,25 @@ export default function BorsaRadar() {
   // Diğer alt sekmeleri  
   const [digerAltSekme,setDigerAltSekme] = useState("portfoy"); // "portfoy"|"korelasyon"|"takvim"|"manuel"
 
-  // Masaüstü mi kontrol
+  // Masaüstü mi kontrol — SSR-safe, sadece layout değişince re-render
+  const isMasaustuRef = useRef(false);
   const [isMasaustu,setIsMasaustu] = useState(false);
   const [solTab,setSolTab] = useState("akis");
   const [sagTab,setSagTab] = useState("analiz");
 
   useEffect(()=>{
-    const kontrol = ()=>setIsMasaustu(window.innerWidth>=900);
+    const kontrol = ()=>{
+      const yeni = window.innerWidth >= 900;
+      if (yeni !== isMasaustuRef.current) {
+        isMasaustuRef.current = yeni;
+        setIsMasaustu(yeni);
+      }
+    };
     kontrol();
-    window.addEventListener("resize",kontrol);
-    return()=>window.removeEventListener("resize",kontrol);
+    let timer;
+    const debounced = ()=>{ clearTimeout(timer); timer=setTimeout(kontrol,200); };
+    window.addEventListener("resize", debounced);
+    return()=>{ window.removeEventListener("resize",debounced); clearTimeout(timer); };
   },[]);
 
   // ─── API CALLS ──────────────────────────────────────────────────────────────
@@ -196,13 +205,16 @@ export default function BorsaRadar() {
     setBultenYukl(false);
   },[haberler,bultenYukl,isMasaustu]);
 
+  const teknikLock = useRef(false);
   const teknikAnalizEt = useCallback(async(sembol)=>{
-    if(!sembol||teknikYukl)return;
+    if(!sembol||teknikLock.current)return;
+    teknikLock.current=true;
     setTeknikYukl(true);setTeknikVeri(null);setTeknikHata("");
     try{const r=await fetch(`/api/teknik?sembol=${encodeURIComponent(sembol)}`);const d=await r.json();if(d.error)throw new Error(d.error);setTeknikVeri(d);}
     catch(e){setTeknikHata(e.message);}
     setTeknikYukl(false);
-  },[teknikYukl]);
+    teknikLock.current=false;
+  },[]);
 
   const raporUret = useCallback(async()=>{
     if(!haberler.length||raporYukl)return;
@@ -226,6 +238,7 @@ export default function BorsaRadar() {
     try{const k=localStorage.getItem("br_korel");if(k)setKorelasyon(JSON.parse(k));}catch{}
     try{const h=localStorage.getItem("br_haftalik");if(h)setHaftalikHaberler(JSON.parse(h));}catch{}
     return()=>{clearInterval(r1);clearInterval(r2);clearInterval(r3);clearInterval(cdRef.current);};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
   useEffect(()=>{try{localStorage.setItem("br_portfoy",JSON.stringify(portfoy));}catch{}},[portfoy]);
@@ -347,35 +360,50 @@ export default function BorsaRadar() {
     </div>
   );
 
+  // tvSembol sadece sembol değişince hesaplanır — iframe'i gereksiz yeniden yüklememek için
+  const bistSemb=["TUPRS","THYAO","EREGL","ASELS","GARAN","AKBNK","YKBNK","BIMAS","SISE","KCHOL","TCELL","PETKM","FROTO","TOASO","OYAKC","PGSUS","TAVHL","EKGYO","ISCTR","TTKOM","SAHOL","KOZAL","MGROS","ULKER","ARCLK"];
+  const xSemb=["XU100","XU050","XU030"];
+  const [tvSembolGosterilen, setTvSembolGosterilen] = useState(""); // sadece "Göster" basılınca güncellenir
+
   const TeknikPaneli = ()=>{
-    const bistSemb=["TUPRS","THYAO","EREGL","ASELS","GARAN","AKBNK","YKBNK","BIMAS","SISE","KCHOL","TCELL","PETKM","FROTO","TOASO","OYAKC","PGSUS","TAVHL","EKGYO","ISCTR","TTKOM","SAHOL","KOZAL","MGROS","ULKER","ARCLK"];
-    const xSemb=["XU100","XU050","XU030"];
-    const tvSembol=xSemb.includes(teknikSembol)?`BIST:${teknikSembol}`:bistSemb.includes(teknikSembol)?`BIST:${teknikSembol}`:teknikSembol.includes(":")?teknikSembol:teknikSembol;
+    const tvSembol=tvSembolGosterilen; // iframe sadece bu değişince yeniden yüklenir
     const t=teknikVeri;
     const rsiRenk=t?(t.rsi>70?"#ff7070":t.rsi<30?"#50dd90":"#80cccc"):"#80cccc";
     const macdRenk=t?(t.macd.histogram>0?"#50dd90":"#ff7070"):"#80cccc";
+    const handleGoster=()=>{
+      if(!teknikSembol)return;
+      const tv=xSemb.includes(teknikSembol)?`BIST:${teknikSembol}`:bistSemb.includes(teknikSembol)?`BIST:${teknikSembol}`:teknikSembol.includes(":")?teknikSembol:teknikSembol;
+      setTvSembolGosterilen(tv);
+      teknikAnalizEt(teknikSembol);
+    };
     return(
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         <div style={{padding:"8px 12px",borderBottom:"1px solid #1a2530",flexShrink:0,background:"#0b0f14"}}>
           <div style={{display:"flex",gap:8,marginBottom:7}}>
-            <input className="inp" style={{flex:1}} placeholder="TUPRS, NVDA, XU100..." value={teknikSembol} onChange={e=>setTeknikSembol(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&teknikAnalizEt(teknikSembol)}/>
-            <button className="btn-p" onClick={()=>teknikAnalizEt(teknikSembol)} disabled={!teknikSembol||teknikYukl} style={{padding:"8px 16px",fontSize:12,flexShrink:0}}>{teknikYukl?<Dots size={5}/>:"Göster"}</button>
+            <input className="inp" style={{flex:1}} placeholder="TUPRS, NVDA, XU100..." value={teknikSembol} onChange={e=>setTeknikSembol(e.target.value.toUpperCase())} onKeyDown={e=>e.key==="Enter"&&handleGoster()}/>
+            <button className="btn-p" onClick={handleGoster} disabled={!teknikSembol||teknikYukl} style={{padding:"8px 16px",fontSize:12,flexShrink:0}}>{teknikYukl?<Dots size={5}/>:"Göster"}</button>
           </div>
           <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
             {["TUPRS","THYAO","EREGL","GARAN","XU100","NVDA","GLD"].map(s=>(
-              <button key={s} className="qtag" onClick={()=>{setTeknikSembol(s);teknikAnalizEt(s);}} style={{fontSize:11,padding:"5px 10px"}}>{s}</button>
+              <button key={s} className="qtag" onClick={()=>{
+                setTeknikSembol(s);
+                const tv=bistSemb.includes(s)?`BIST:${s}`:xSemb.includes(s)?`BIST:${s}`:s;
+                setTvSembolGosterilen(tv);
+                teknikAnalizEt(s);
+              }} style={{fontSize:11,padding:"5px 10px"}}>{s}</button>
             ))}
           </div>
         </div>
         <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minHeight:0}}>
-          {!teknikSembol&&!teknikVeri&&(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:12,textAlign:"center",color:"#1e3040"}}><div style={{fontSize:36,opacity:.1}}>📊</div><div style={{fontSize:14,fontWeight:600,color:"#3a6050"}}>Teknik Analiz</div><div style={{fontSize:12,color:"#2a4050",lineHeight:1.7}}>TradingView grafiği + RSI, MACD, Destek/Direnç</div></div>)}
+          {!tvSembol&&!teknikVeri&&(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100%",gap:12,textAlign:"center",color:"#1e3040"}}><div style={{fontSize:36,opacity:.1}}>📊</div><div style={{fontSize:14,fontWeight:600,color:"#3a6050"}}>Teknik Analiz</div><div style={{fontSize:12,color:"#2a4050",lineHeight:1.7}}>Sembol yaz → Göster'e bas<br/>TradingView grafiği açılır</div></div>)}
           {teknikYukl&&(<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60%",gap:12}}><Dots/><div style={{fontSize:13,color:"#4a8a6a"}}>Yükleniyor...</div></div>)}
-          {(teknikVeri||(teknikSembol&&!teknikYukl))&&(
+          {tvSembol&&(
             <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minHeight:0}}>
               <div style={{flex:1,minHeight:0,position:"relative"}}>
+                {/* key={tvSembol} — sadece sembol değişince iframe yenilenir */}
                 <iframe key={tvSembol} src={`https://www.tradingview.com/widgetembed/?frameElementId=tv&symbol=${encodeURIComponent(tvSembol)}&interval=D&hidesidetoolbar=1&hidetoptoolbar=0&symboledit=1&saveimage=0&toolbarbg=0f1318&studies=RSI%40tv-basicstudies%1FMACD%40tv-basicstudies&theme=dark&style=1&timezone=Europe%2FIstanbul&withdateranges=1&hidevolume=0&locale=tr`} style={{width:"100%",height:"100%",border:"none",display:"block"}} allowFullScreen/>
               </div>
-              {teknikHata&&(<div style={{padding:"6px 12px",background:"#140e0a",borderTop:"1px solid #2a1a0a",fontSize:11,color:"#cc8844"}}>⚠ {teknikHata}</div>)}
+              {teknikHata&&(<div style={{padding:"6px 12px",background:"#140e0a",borderTop:"1px solid #2a1a0a",fontSize:11,color:"#cc8844"}}>⚠ {teknikHata} — TradingView grafiği yine de çalışır</div>)}
               {t&&(
                 <div style={{flexShrink:0,borderTop:"1px solid #1a2530",background:"#0b0f14",padding:"8px 10px",overflowX:"auto"}}>
                   <div style={{display:"flex",gap:6,minWidth:"max-content"}}>
