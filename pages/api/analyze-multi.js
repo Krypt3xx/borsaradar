@@ -133,15 +133,32 @@ export default async function handler(req, res) {
   const OPENAI_KEY    = process.env.OPENAI_API_KEY;
   const GROQ_KEY      = process.env.GROQ_API_KEY;
 
+  // Gerçek zamanlı döviz kurunu çek ve prompt'a enjekte et
+  let kurBilgisi = "";
+  try {
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : "http://localhost:3000";
+    const dovizR = await fetch(`${baseUrl}/api/doviz`, { signal: AbortSignal.timeout(5000) });
+    if (dovizR.ok) {
+      const d = await dovizR.json();
+      if (d.kurlar?.USDTRY) {
+        kurBilgisi = `\n\n⚠️ GERÇEK ZAMANLI DÖVİZ KURLARI (${d.guncelleme} itibarıyla — bu rakamları kullan, asla tahmin yapma):\n- USD/TRY: ${d.kurlar.USDTRY}\n- EUR/TRY: ${d.kurlar.EURTRY || "N/A"}\n- GBP/TRY: ${d.kurlar.GBPTRY || "N/A"}\n- Altın (Gram/TL): ${d.kurlar.ALTIN_TL || "N/A"} TL\n- Altın (Ons/$): ${d.kurlar.ALTIN || "N/A"}\n- Kaynak: ${d.kurlar.kaynak}\n`;
+      }
+    }
+  } catch {}
+
+  const metinKurlu = metin + kurBilgisi;
+
   const [claudeR, gptR, groqR] = await Promise.allSettled([
     ANTHROPIC_KEY
-      ? callClaude(metin, ANTHROPIC_KEY)
+      ? callClaude(metinKurlu, ANTHROPIC_KEY)
       : Promise.reject(new Error("ANTHROPIC_API_KEY eksik — Vercel'e ekle")),
     OPENAI_KEY
-      ? callGPT(metin, OPENAI_KEY)
+      ? callGPT(metinKurlu, OPENAI_KEY)
       : Promise.reject(new Error("OPENAI_API_KEY eksik")),
     GROQ_KEY
-      ? callGroq(metin, GROQ_KEY)
+      ? callGroq(metinKurlu, GROQ_KEY)
       : Promise.reject(new Error("GROQ_API_KEY eksik — console.groq.com'dan ücretsiz alın")),
   ]);
 
