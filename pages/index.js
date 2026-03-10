@@ -702,7 +702,7 @@ const IstihbaratPaneli=memo(({
   duygu,duyguYukl,onDuyguHesapla,
   sektor,sektorYukl,
   zamanlama,zamanlamaYukl,onZamanlamaHesapla,zamanlamaSembol,setZamanlamaSembol,
-  tahminler,onTahminGuncelle,tahminGuncYukl,
+  tahminler=[],onTahminGuncelle,tahminGuncYukl,
   aktifTab,setAktifTab,
   haberler,
 })=>{
@@ -719,7 +719,7 @@ const IstihbaratPaneli=memo(({
         <div style={{flex:1,overflowY:"auto",padding:"12px",WebkitOverflowScrolling:"touch"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:13,fontWeight:700,color:"#4a8090"}}>🧠 Piyasa Duygu Endeksi</div>
-            <button onClick={onDuyguHesapla} disabled={duyguYukl||!haberler.length} className="btn-p" style={{padding:"6px 14px",fontSize:11}}>
+            <button onClick={onDuyguHesapla} disabled={duyguYukl||!(haberler?.length)} className="btn-p" style={{padding:"6px 14px",fontSize:11}}>
               {duyguYukl?<Dots size={4}/>:"Hesapla"}
             </button>
           </div>
@@ -854,9 +854,9 @@ const IstihbaratPaneli=memo(({
               </div>
               <div style={{background:"#101820",border:"1px solid #1e2d38",borderRadius:7,padding:"10px 12px",fontSize:11,color:"#6a9090",lineHeight:1.7}}>
                 <strong style={{color:"#4a8090"}}>Nasıl yorumlanır:</strong><br/>
-                Fiyatlanma %{">"}70 → Piyasa haberi biliyor, geç kalmış olabilirsin<br/>
-                Fiyatlanma %{"<"}30 → Pencere açık, hareketten önce girme fırsatı<br/>
-                Hacim 2x üzeri → Büyük oyuncular pozisyon alıyor
+                {"Fiyatlanma %70+ ise: Piyasa haberi biliyor, geç kalmış olabilirsin"}<br/>
+                {"Fiyatlanma %30- ise: Pencere açık, hareketten önce girme fırsatı"}<br/>
+                {"Hacim 2x üzeri: Büyük oyuncular pozisyon alıyor"}
               </div>
             </div>
           )}
@@ -882,7 +882,7 @@ const IstihbaratPaneli=memo(({
               Analiz yaptığında önerilen hisseleri buraya ekle<br/>
               Zaman içinde hangi tahminler tuttu, hangisi tutmadı görürsün<br/>
               <div style={{marginTop:16,fontSize:11,color:"#3a6070"}}>
-                Geçmiş analizlerden hisse eklemek için<br/>analiz sonucundaki "📌 Takibe Al" butonunu kullan
+                Geçmiş analizlerden hisse eklemek için - analiz sonucundaki 📌 Takibe Al butonunu kullan
               </div>
             </div>
           )}
@@ -1175,14 +1175,11 @@ export default function BorsaRadar() {
       const r=await fetch("/api/analyze-multi",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({metin})});
       const d=await r.json();
       setAnalizler({claude:d.claude?.text||(d.claude?.error?`❌ ${d.claude.error}`:null),gpt:d.gpt?.text||(d.gpt?.error?`❌ ${d.gpt.error}`:null),gemini:d.gemini?.text||(d.gemini?.error?`❌ ${d.gemini.error}`:null)});
-      // Otomatik sektör haritası çıkar
-      try{
-        setSektorYukl(true);
-        const sr=await fetch("/api/sektor",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({metin})});
-        const sd=await sr.json();
-        if(sd.onerilenHisseler?.length)setSektor(sd);
-        setSektorYukl(false);
-      }catch{setSektorYukl(false);}
+      // Otomatik sektör haritası çıkar (non-blocking)
+      fetch("/api/sektor",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({metin})})
+        .then(r=>r.json()).then(sd=>{if(sd.onerilenHisseler?.length)setSektor(sd);setSektorYukl(false);})
+        .catch(()=>setSektorYukl(false));
+      setSektorYukl(true);
       const kayit={id:Date.now(),baslik:baslik||metin.slice(0,70),analizler:{claude:d.claude?.text,gpt:d.gpt?.text,gemini:d.gemini?.text},zaman:new Date().toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"}),tarih:new Date().toLocaleDateString("tr-TR")};
       setGecmis(prev=>[kayit,...prev.slice(0,19)]);
       const kat=kategoriBul(metin);
