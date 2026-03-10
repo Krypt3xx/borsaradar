@@ -118,7 +118,56 @@ const HaberListesi=memo(({haberler,yukl,hata,filtre,setFiltre,secilenId,onClick,
 });
 
 // ─── ANALİZ PANELİ ────────────────────────────────────────────────────────────
-const AnalizPaneli=memo(({analizler,analizYukl,baslik,aktif,setAktif,goster})=>{
+
+// ─── TAHMİN EKLE BUTONU (Analiz içinde kullanılır) ────────────────────────────
+function TahminEkleButon({aiId,analizMetni,onEkle}){
+  const [acik,setAcik]=React.useState(false);
+  const [sembol,setSembol]=React.useState("");
+  const [yon,setYon]=React.useState("AL");
+  const [hedef,setHedef]=React.useState("");
+  const [fiyatYukl,setFiyatYukl]=React.useState(false);
+
+  const ekle=async()=>{
+    if(!sembol)return;
+    setFiyatYukl(true);
+    let girisFiyat=null, para="TRY";
+    try{
+      const r=await fetch(`/api/sim-fiyat?sembol=${encodeURIComponent(sembol)}`);
+      const d=await r.json();
+      if(d.fiyat){girisFiyat=d.fiyat;para=d.para||"TRY";}
+    }catch{}
+    setFiyatYukl(false);
+    onEkle(sembol,yon,hedef?parseFloat(hedef):null,aiId,analizMetni?.slice(0,100),girisFiyat,para);
+    setSembol("");setHedef("");setAcik(false);
+  };
+
+  if(!acik)return(
+    <button onClick={()=>setAcik(true)}
+      style={{fontSize:10,padding:"4px 10px",background:"#1a2d1a",border:"1px solid #3a6a3a",borderRadius:5,color:"#60cc80",cursor:"pointer",whiteSpace:"nowrap"}}>
+      📌 Takibe Al
+    </button>
+  );
+  return(
+    <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+      <input placeholder="SEMBOL" value={sembol} onChange={e=>setSembol(e.target.value.toUpperCase())}
+        style={{width:70,fontSize:11,padding:"3px 6px",background:"#0a1520",border:"1px solid #2a4050",borderRadius:4,color:"#c0d8e4",outline:"none",fontFamily:"monospace"}}/>
+      <select value={yon} onChange={e=>setYon(e.target.value)}
+        style={{fontSize:11,padding:"3px 6px",background:"#0a1520",border:"1px solid #2a4050",borderRadius:4,color:yon==="AL"?"#50dd90":"#ff7070",outline:"none"}}>
+        <option value="AL">AL</option><option value="SAT">SAT</option>
+      </select>
+      <input placeholder="Hedef%" value={hedef} onChange={e=>setHedef(e.target.value)}
+        style={{width:60,fontSize:11,padding:"3px 6px",background:"#0a1520",border:"1px solid #2a4050",borderRadius:4,color:"#c0d8e4",outline:"none"}}/>
+      <button onClick={ekle} disabled={!sembol||fiyatYukl}
+        style={{fontSize:10,padding:"4px 10px",background:"#1a3a20",border:"1px solid #3a7a40",borderRadius:4,color:"#60dd80",cursor:"pointer"}}>
+        {fiyatYukl?"...":"✓ Ekle"}
+      </button>
+      <button onClick={()=>setAcik(false)}
+        style={{fontSize:10,padding:"4px 8px",background:"none",border:"1px solid #2a3a40",borderRadius:4,color:"#3a5060",cursor:"pointer"}}>✕</button>
+    </div>
+  );
+}
+
+const AnalizPaneli=memo(({analizler,analizYukl,baslik,aktif,setAktif,goster,onTahminEkle,analizBaslikMetni})=>{
   if(!goster&&!Object.values(analizYukl).some(v=>v))return(
     <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,textAlign:"center",padding:24}}>
       <div style={{display:"flex",gap:12}}>{Object.values(AIT).map(ai=><div key={ai.isim} style={{width:52,height:52,borderRadius:12,background:ai.bg,border:`2px solid ${ai.bd}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:ai.renk}}>{ai.logo}</div>)}</div>
@@ -147,9 +196,12 @@ const AnalizPaneli=memo(({analizler,analizYukl,baslik,aktif,setAktif,goster})=>{
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60%",gap:12}}><Dots color={AIT[aktif].renk}/><div style={{fontSize:13,fontWeight:500,color:AIT[aktif].renk}}>{AIT[aktif].isim} analiz ediyor...</div></div>
         ):analizler[aktif]?(
           <div style={{animation:"fadein .3s ease"}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16,padding:"8px 12px",borderRadius:6,background:AIT[aktif].bg,border:`1px solid ${AIT[aktif].bd}`}}>
-              <span style={{fontSize:16,color:AIT[aktif].renk}}>{AIT[aktif].logo}</span>
-              <span style={{fontSize:12,fontWeight:600,color:AIT[aktif].renk}}>{AIT[aktif].isim}</span>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginBottom:12,padding:"8px 12px",borderRadius:6,background:AIT[aktif].bg,border:`1px solid ${AIT[aktif].bd}`}}>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:16,color:AIT[aktif].renk}}>{AIT[aktif].logo}</span>
+                <span style={{fontSize:12,fontWeight:600,color:AIT[aktif].renk}}>{AIT[aktif].isim}</span>
+              </div>
+              {onTahminEkle&&<TahminEkleButon aiId={aktif} analizMetni={analizler[aktif]} onEkle={onTahminEkle}/>}
             </div>
             <div style={{fontSize:13,lineHeight:1.85,color:"#a8c4cc"}} dangerouslySetInnerHTML={{__html:md(analizler[aktif])}}/>
           </div>
@@ -644,6 +696,256 @@ const RaporPaneli=memo(({raporVeri,yukl,tip,setTip,aktifAI,setAktifAI,doviz,habe
   </div>
 ));
 
+
+// ─── İSTİHBARAT PANELİ (7 özellik: duygu, sektör, zamanlama, tahmin takip) ──
+const IstihbaratPaneli=memo(({
+  duygu,duyguYukl,onDuyguHesapla,
+  sektor,sektorYukl,
+  zamanlama,zamanlamaYukl,onZamanlamaHesapla,zamanlamaSembol,setZamanlamaSembol,
+  tahminler,onTahminGuncelle,tahminGuncYukl,
+  aktifTab,setAktifTab,
+  haberler,
+})=>{
+  return(
+    <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{display:"flex",borderBottom:"1px solid #1a2530",flexShrink:0,background:"#0b0f14",overflowX:"auto"}}>
+        {[["duygu","🧠 Duygu"],["sektor","🗺 Sektör"],["zamanlama","⏱ Zamanlama"],["tahmin","🎯 Tahmin Takip"]].map(([k,l])=>(
+          <button key={k} className={`tab${aktifTab===k?" on":""}`} onClick={()=>setAktifTab(k)} style={{fontSize:11}}>{l}</button>
+        ))}
+      </div>
+
+      {/* DUYGU ENDEKSİ */}
+      {aktifTab==="duygu"&&(
+        <div style={{flex:1,overflowY:"auto",padding:"12px",WebkitOverflowScrolling:"touch"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#4a8090"}}>🧠 Piyasa Duygu Endeksi</div>
+            <button onClick={onDuyguHesapla} disabled={duyguYukl||!haberler.length} className="btn-p" style={{padding:"6px 14px",fontSize:11}}>
+              {duyguYukl?<Dots size={4}/>:"Hesapla"}
+            </button>
+          </div>
+
+          {!duygu&&!duyguYukl&&(
+            <div style={{textAlign:"center",padding:40,color:"#2a4050",lineHeight:1.9,fontSize:12}}>
+              <div style={{fontSize:32,opacity:.1,marginBottom:8}}>🧠</div>
+              Son haberlerin tonunu analiz eder<br/>
+              Korku / Nötr / Açgözlülük endeksi<br/>
+              <strong style={{color:"#4a8090"}}>Warren Buffett: "Korku varken al, açgözlülük varken sat"</strong>
+            </div>
+          )}
+
+          {duyguYukl&&<div style={{display:"flex",justifyContent:"center",padding:40}}><Dots color="#80a8c0"/></div>}
+
+          {duygu&&!duyguYukl&&(
+            <div style={{animation:"fadein .3s ease"}}>
+              {/* Ana gösterge */}
+              <div style={{background:"#0d1520",border:`2px solid ${duygu.renk}44`,borderRadius:12,padding:"20px",marginBottom:14,textAlign:"center"}}>
+                <div style={{fontSize:11,color:duygu.renk,fontWeight:700,letterSpacing:".1em",marginBottom:8}}>{duygu.haberSayisi} HABER ANALİZ EDİLDİ</div>
+                {/* Gauge çubuğu */}
+                <div style={{position:"relative",height:16,background:"linear-gradient(to right,#4488ff,#44aaff,#aaaaaa,#ff8800,#ff4444)",borderRadius:8,marginBottom:12,overflow:"hidden"}}>
+                  <div style={{position:"absolute",top:"50%",left:`${duygu.endeks}%`,transform:"translate(-50%,-50%)",width:20,height:20,borderRadius:"50%",background:"#fff",border:"3px solid #0f1318",boxShadow:"0 0 8px rgba(0,0,0,.5)"}}/>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:"#3a5060",marginBottom:14}}>
+                  <span>0 Aşırı Korku</span><span>50 Nötr</span><span>100 Aşırı Açgözlülük</span>
+                </div>
+                <div style={{fontSize:32,fontWeight:900,color:duygu.renk,fontFamily:"monospace",marginBottom:4}}>{duygu.endeks}</div>
+                <div style={{fontSize:16,fontWeight:700,color:duygu.renk,marginBottom:8}}>{duygu.etiket}</div>
+                <div style={{fontSize:12,color:"#8ab0b8",lineHeight:1.6}}>{duygu.aciklama}</div>
+              </div>
+
+              {/* Kategori bazlı dağılım */}
+              {duygu.kategoriSkolar?.length>0&&(
+                <div style={{background:"#101820",border:"1px solid #1e2d38",borderRadius:8,padding:"12px"}}>
+                  <div style={{fontSize:11,fontWeight:700,color:"#4a8090",marginBottom:10}}>Kategori Bazlı Duygu</div>
+                  {duygu.kategoriSkolar.slice(0,8).map(k=>{
+                    const poz=k.skor>0,neg=k.skor<0;
+                    const bWidth=Math.min(100,Math.abs(k.skor));
+                    return(
+                      <div key={k.kategori} style={{display:"flex",alignItems:"center",gap:8,marginBottom:7}}>
+                        <div style={{width:100,fontSize:10,color:"#4a7080",flexShrink:0}}>{k.kategori}</div>
+                        <div style={{flex:1,height:6,background:"#1a2530",borderRadius:3,overflow:"hidden"}}>
+                          <div style={{width:`${bWidth}%`,height:"100%",background:poz?"#50dd90":neg?"#ff7070":"#6080a0",borderRadius:3,marginLeft:poz?"50%":neg?`${50-bWidth}%`:"50%",transform:poz?"none":"none"}}/>
+                        </div>
+                        <div style={{fontSize:10,color:poz?"#50dd90":neg?"#ff7070":"#6080a0",fontFamily:"monospace",width:36,textAlign:"right"}}>{k.skor>0?"+":""}{k.skor}</div>
+                        <div style={{fontSize:9,color:"#2a4050",width:28,textAlign:"right"}}>{k.toplam}h</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* SEKTÖR ETKİ HARİTASI */}
+      {aktifTab==="sektor"&&(
+        <div style={{flex:1,overflowY:"auto",padding:"12px",WebkitOverflowScrolling:"touch"}}>
+          {!sektor&&!sektorYukl&&(
+            <div style={{textAlign:"center",padding:40,color:"#2a4050",lineHeight:1.9,fontSize:12}}>
+              <div style={{fontSize:32,opacity:.1,marginBottom:8}}>🗺</div>
+              Bir haberi analiz et<br/>Otomatik olarak etkilenen sektörler<br/>ve BIST/global hisseler listelenir
+            </div>
+          )}
+          {sektorYukl&&<div style={{display:"flex",justifyContent:"center",padding:40}}><Dots color="#80c0a0"/></div>}
+          {sektor&&!sektorYukl&&(
+            <div style={{animation:"fadein .3s ease"}}>
+              <div style={{fontSize:11,color:"#4a7080",marginBottom:10}}>{sektor.sektorSayisi} sektör etkileniyor · {sektor.onerilenHisseler?.length} hisse tespit edildi</div>
+              {sektor.onerilenHisseler?.map((h,i)=>{
+                const etkiRenk=h.etki==="DOĞRUDAN"?"#ff9060":h.etki==="POZİTİF"?"#50dd90":h.etki==="TERS"?"#ff7070":h.etki==="ORTA"?"#ffcc44":"#6080a0";
+                return(
+                  <div key={i} style={{background:"#101820",border:"1px solid #1e2d38",borderRadius:7,padding:"10px 12px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+                        <span style={{fontSize:14,fontWeight:800,color:"#70d8a0",fontFamily:"monospace"}}>{h.sembol}</span>
+                        <span style={{fontSize:11,color:"#4a6070"}}>{h.isim}</span>
+                        <span style={{fontSize:9,fontWeight:700,color:etkiRenk,background:etkiRenk+"20",padding:"1px 6px",borderRadius:4}}>{h.etki}</span>
+                      </div>
+                      <div style={{fontSize:11,color:"#5a8090",lineHeight:1.5}}>{h.aciklama}</div>
+                      <div style={{fontSize:9,color:"#2a4050",marginTop:3}}>Sektör: {h.sektor}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ZAMANLAMA SİNYALİ */}
+      {aktifTab==="zamanlama"&&(
+        <div style={{flex:1,overflowY:"auto",padding:"12px",WebkitOverflowScrolling:"touch"}}>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:13,fontWeight:700,color:"#4a8090",marginBottom:8}}>⏱ Fırsat Penceresi Analizi</div>
+            <div style={{fontSize:11,color:"#2a5060",marginBottom:10,lineHeight:1.7}}>
+              "Bu haber piyasa tarafından zaten fiyatlandı mı?" sorusunu yanıtlar.<br/>
+              Son 4 saatlik fiyat hareketi + hacim anomalisi analiz edilir.
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <input className="inp" style={{flex:1}} placeholder="Sembol: GARAN, NVDA, BTC-USD..."
+                value={zamanlamaSembol} onChange={e=>setZamanlamaSembol(e.target.value.toUpperCase())}
+                onKeyDown={e=>e.key==="Enter"&&zamanlamaSembol&&onZamanlamaHesapla(zamanlamaSembol)}/>
+              <button className="btn-p" onClick={()=>onZamanlamaHesapla(zamanlamaSembol)} disabled={!zamanlamaSembol||zamanlamaYukl} style={{padding:"8px 16px",fontSize:12,flexShrink:0}}>
+                {zamanlamaYukl?<Dots size={5}/>:"Analiz"}
+              </button>
+            </div>
+          </div>
+
+          {zamanlamaYukl&&<div style={{display:"flex",justifyContent:"center",padding:40}}><Dots color="#80b0c0"/></div>}
+
+          {zamanlama&&!zamanlamaYukl&&(
+            <div style={{animation:"fadein .3s ease"}}>
+              <div style={{background:"#0d1520",border:`2px solid ${zamanlama.pencereRenk}55`,borderRadius:10,padding:"16px",marginBottom:12,textAlign:"center"}}>
+                <div style={{fontSize:11,color:"#3a6070",marginBottom:6}}>{zamanlama.sembol} · Güncel: {zamanlama.para==="USD"?"$":"₺"}{zamanlama.sonFiyat}</div>
+                <div style={{fontSize:22,fontWeight:800,color:zamanlama.pencereRenk,marginBottom:4}}>{zamanlama.pencere}</div>
+                <div style={{display:"flex",gap:12,justifyContent:"center",marginTop:12}}>
+                  <div style={{textAlign:"center",padding:"8px 16px",background:"#00000030",borderRadius:6}}>
+                    <div style={{fontSize:9,color:"#3a6070"}}>4 Saatlik Değişim</div>
+                    <div style={{fontSize:18,fontWeight:700,color:zamanlama.degisim4s>=0?"#50dd90":"#ff7070",fontFamily:"monospace"}}>{zamanlama.degisim4s>=0?"+":""}{zamanlama.degisim4s}%</div>
+                  </div>
+                  <div style={{textAlign:"center",padding:"8px 16px",background:"#00000030",borderRadius:6}}>
+                    <div style={{fontSize:9,color:"#3a6070"}}>Hacim / Ortalama</div>
+                    <div style={{fontSize:18,fontWeight:700,color:zamanlama.hacimOrani>1.5?"#ff9060":"#50dd90",fontFamily:"monospace"}}>{zamanlama.hacimOrani}x</div>
+                  </div>
+                  <div style={{textAlign:"center",padding:"8px 16px",background:"#00000030",borderRadius:6}}>
+                    <div style={{fontSize:9,color:"#3a6070"}}>Fiyatlanma</div>
+                    <div style={{fontSize:18,fontWeight:700,color:zamanlama.fiyatlanmaPct>60?"#ff7070":"#50dd90",fontFamily:"monospace"}}>%{zamanlama.fiyatlanmaPct}</div>
+                  </div>
+                </div>
+              </div>
+              <div style={{background:"#101820",border:"1px solid #1e2d38",borderRadius:7,padding:"10px 12px",fontSize:11,color:"#6a9090",lineHeight:1.7}}>
+                <strong style={{color:"#4a8090"}}>Nasıl yorumlanır:</strong><br/>
+                Fiyatlanma %{">"}70 → Piyasa haberi biliyor, geç kalmış olabilirsin<br/>
+                Fiyatlanma %{"<"}30 → Pencere açık, hareketten önce girme fırsatı<br/>
+                Hacim 2x üzeri → Büyük oyuncular pozisyon alıyor
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAHMİN TAKİP */}
+      {aktifTab==="tahmin"&&(
+        <div style={{flex:1,overflowY:"auto",padding:"12px",WebkitOverflowScrolling:"touch"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:700,color:"#4a8090"}}>🎯 AI Tahmin Başarı Takibi</div>
+              <div style={{fontSize:11,color:"#2a4050",marginTop:2}}>Analizlerdeki hisse önerilerini takip et, gerçekleşme oranını ölç</div>
+            </div>
+            <button onClick={onTahminGuncelle} disabled={tahminGuncYukl||!tahminler.length} className="btn-p" style={{padding:"6px 14px",fontSize:11}}>
+              {tahminGuncYukl?<Dots size={4}/>:"↻ Fiyat Güncelle"}
+            </button>
+          </div>
+
+          {tahminler.length===0&&(
+            <div style={{textAlign:"center",padding:40,color:"#2a4050",lineHeight:1.9,fontSize:12}}>
+              <div style={{fontSize:32,opacity:.1,marginBottom:8}}>🎯</div>
+              Analiz yaptığında önerilen hisseleri buraya ekle<br/>
+              Zaman içinde hangi tahminler tuttu, hangisi tutmadı görürsün<br/>
+              <div style={{marginTop:16,fontSize:11,color:"#3a6070"}}>
+                Geçmiş analizlerden hisse eklemek için<br/>analiz sonucundaki "📌 Takibe Al" butonunu kullan
+              </div>
+            </div>
+          )}
+
+          {tahminler.length>0&&(()=>{
+            const dogruSayisi=tahminler.filter(t=>t.sonuc==="DOĞRU").length;
+            const yanlisSayisi=tahminler.filter(t=>t.sonuc==="YANLIŞ").length;
+            const bekleyen=tahminler.filter(t=>!t.sonuc).length;
+            const basariOrani=dogruSayisi+yanlisSayisi>0?Math.round(dogruSayisi/(dogruSayisi+yanlisSayisi)*100):null;
+            return(
+              <>
+                {/* Özet */}
+                <div style={{display:"flex",gap:8,marginBottom:12}}>
+                  {[
+                    {l:"Başarı Oranı",v:basariOrani!=null?`%${basariOrani}`:"—",c:basariOrani!=null?(basariOrani>=50?"#50dd90":"#ff7070"):"#8090a0"},
+                    {l:"Doğru",v:dogruSayisi,c:"#50dd90"},
+                    {l:"Yanlış",v:yanlisSayisi,c:"#ff7070"},
+                    {l:"Bekliyor",v:bekleyen,c:"#ffcc44"},
+                  ].map(({l,v,c})=>(
+                    <div key={l} style={{flex:1,background:"#0d1520",border:"1px solid #1e3040",borderRadius:7,padding:"8px",textAlign:"center"}}>
+                      <div style={{fontSize:9,color:"#3a6070",marginBottom:3}}>{l}</div>
+                      <div style={{fontSize:18,fontWeight:800,color:c,fontFamily:"monospace"}}>{v}</div>
+                    </div>
+                  ))}
+                </div>
+                {/* Tahminler */}
+                {tahminler.map((t,i)=>{
+                  const bekliyor=!t.sonuc;
+                  const degisim=t.girisFiyat&&t.guncelFiyat?((t.guncelFiyat-t.girisFiyat)/t.girisFiyat*100):null;
+                  const beklentiKarsilandi=t.yon==="AL"?degisim>0:degisim<0;
+                  const renk=t.sonuc==="DOĞRU"?"#50dd90":t.sonuc==="YANLIŞ"?"#ff7070":bekliyor?"#ffcc44":"#8090a0";
+                  return(
+                    <div key={i} style={{background:"#101820",border:`1px solid ${renk}33`,borderRadius:7,padding:"10px 12px",marginBottom:7}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontSize:14,fontWeight:800,color:"#70d8a0",fontFamily:"monospace"}}>{t.sembol}</span>
+                          <span style={{fontSize:11,fontWeight:700,color:t.yon==="AL"?"#50dd90":"#ff7070",background:t.yon==="AL"?"#0a2010":"#200808",padding:"1px 8px",borderRadius:4}}>{t.yon}</span>
+                          <span style={{fontSize:9,color:renk,background:renk+"20",padding:"1px 6px",borderRadius:4,fontWeight:700}}>{t.sonuc||"BEKLIYOR"}</span>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          {degisim!=null&&<div style={{fontSize:14,fontWeight:700,color:beklentiKarsilandi?"#50dd90":"#ff7070",fontFamily:"monospace"}}>{degisim>=0?"+":""}{degisim.toFixed(2)}%</div>}
+                          <div style={{fontSize:9,color:"#2a4050"}}>{t.tarih}</div>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",gap:12,fontSize:10,color:"#4a7080"}}>
+                        <span>Giriş: {t.para==="USD"?"$":"₺"}{t.girisFiyat}</span>
+                        {t.guncelFiyat&&<span>Güncel: {t.para==="USD"?"$":"₺"}{t.guncelFiyat}</span>}
+                        {t.hedefPct&&<span>Hedef: %{t.hedefPct}</span>}
+                        {t.ai&&<span>AI: {t.ai}</span>}
+                      </div>
+                      {t.metin&&<div style={{fontSize:10,color:"#3a5060",marginTop:4,lineHeight:1.5,borderTop:"1px solid #1a2530",paddingTop:4}}>{t.metin}</div>}
+                    </div>
+                  );
+                })}
+              </>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+});
+
 // ─── DİĞER PANELİ ─────────────────────────────────────────────────────────────
 const DigerPaneli=memo(({sekme,setSekme,portfoy,setPortfoy,yeniHisse,setYeniHisse,hisseEkle,manuel,setManuel,analizDevam,onManuelAnaliz,korelasyon,setKorelasyon,takvim,onTakvimAnaliz,gecmis,setGecmis,onGecmisYukle})=>(
   <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
@@ -813,6 +1115,18 @@ export default function BorsaRadar() {
   const [yeniHisse,setYeniHisse]       = useState({sembol:"",adet:"",maliyet:""});
   const [manuel,setManuel]             = useState("");
 
+  // ─── YENİ: 7 özellik state ────────────────────────────────────────────────
+  const [duygu,setDuygu]               = useState(null);
+  const [duyguYukl,setDuyguYukl]       = useState(false);
+  const [sektor,setSektor]             = useState(null);
+  const [sektorYukl,setSektorYukl]     = useState(false);
+  const [zamanlama,setZamanlama]       = useState(null);
+  const [zamanlamaYukl,setZamanlamaYukl]=useState(false);
+  const [zamanlamaSembol,setZamanlamaSembol]=useState("");
+  const [tahminler,setTahminler]       = useState([]);
+  const [tahminGuncYukl,setTahminGuncYukl]=useState(false);
+  const [istihbaratTab,setIstihbaratTab]=useState("duygu");
+
   const [aktifEkran,setAktifEkran]     = useState("haberler");
   const [analizAlt,setAnalizAlt]       = useState("3ai");
   const [digerSekme,setDigerSekme]     = useState("portfoy");
@@ -861,6 +1175,14 @@ export default function BorsaRadar() {
       const r=await fetch("/api/analyze-multi",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({metin})});
       const d=await r.json();
       setAnalizler({claude:d.claude?.text||(d.claude?.error?`❌ ${d.claude.error}`:null),gpt:d.gpt?.text||(d.gpt?.error?`❌ ${d.gpt.error}`:null),gemini:d.gemini?.text||(d.gemini?.error?`❌ ${d.gemini.error}`:null)});
+      // Otomatik sektör haritası çıkar
+      try{
+        setSektorYukl(true);
+        const sr=await fetch("/api/sektor",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({metin})});
+        const sd=await sr.json();
+        if(sd.onerilenHisseler?.length)setSektor(sd);
+        setSektorYukl(false);
+      }catch{setSektorYukl(false);}
       const kayit={id:Date.now(),baslik:baslik||metin.slice(0,70),analizler:{claude:d.claude?.text,gpt:d.gpt?.text,gemini:d.gemini?.text},zaman:new Date().toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"}),tarih:new Date().toLocaleDateString("tr-TR")};
       setGecmis(prev=>[kayit,...prev.slice(0,19)]);
       const kat=kategoriBul(metin);
@@ -914,6 +1236,62 @@ export default function BorsaRadar() {
     setTekAIYukl(false);tekAILock.current=false;
   },[]);
 
+  // ─── DUYGU ENDEKSİ ─────────────────────────────────────────────────────────
+  const duyguHesapla=useCallback(async()=>{
+    const h=haberlerRef.current;if(!h.length)return;
+    setDuyguYukl(true);setDuygu(null);
+    try{
+      const r=await fetch("/api/duygu",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({haberler:h})});
+      const d=await r.json();setDuygu(d);
+    }catch{}
+    setDuyguYukl(false);
+  },[]);
+
+  // ─── ZAMANLAMA SİNYALİ ────────────────────────────────────────────────────
+  const zamanlamaHesapla=useCallback(async(s)=>{
+    if(!s)return;
+    setZamanlamaYukl(true);setZamanlama(null);
+    try{
+      const r=await fetch("/api/zamanlama",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sembol:s})});
+      const d=await r.json();if(!d.error)setZamanlama(d);
+    }catch{}
+    setZamanlamaYukl(false);
+  },[]);
+
+  // ─── TAHMİN EKLE ──────────────────────────────────────────────────────────
+  const tahminEkle=useCallback((sembol,yon,hedefPct,ai,metin,girisFiyat,para)=>{
+    const yeni={
+      id:Date.now(),sembol:sembol.toUpperCase(),yon,hedefPct,ai,
+      metin:metin?.slice(0,100),girisFiyat,guncelFiyat:girisFiyat,para:para||"TRY",
+      tarih:new Date().toLocaleDateString("tr-TR"),
+      sonuc:null,
+    };
+    setTahminler(prev=>[yeni,...prev.slice(0,99)]);
+  },[]);
+
+  // ─── TAHMİN FİYAT GÜNCELLE ───────────────────────────────────────────────
+  const tahminGuncelle=useCallback(async()=>{
+    const bekleyen=tahminler.filter(t=>!t.sonuc);
+    if(!bekleyen.length)return;
+    setTahminGuncYukl(true);
+    const guncel=[...tahminler];
+    await Promise.allSettled(bekleyen.map(async(t,_)=>{
+      try{
+        const r=await fetch(`/api/tahmintakip?sembol=${encodeURIComponent(t.sembol)}`);
+        const d=await r.json();
+        if(!d.fiyat)return;
+        const idx=guncel.findIndex(x=>x.id===t.id);
+        if(idx===-1)return;
+        const degisim=((d.fiyat-t.girisFiyat)/t.girisFiyat)*100;
+        const beklentiKarsilandi=t.yon==="AL"?degisim>0:degisim<0;
+        const hedefUlasti=t.hedefPct&&(t.yon==="AL"?degisim>=t.hedefPct:degisim<=(-t.hedefPct));
+        guncel[idx]={...guncel[idx],guncelFiyat:d.fiyat,sonuc:hedefUlasti?"DOĞRU":null};
+      }catch{}
+    }));
+    setTahminler(guncel);
+    setTahminGuncYukl(false);
+  },[tahminler]);
+
   const raporUret=useCallback(async()=>{
     const h=haberlerRef.current;if(!h.length||raporYuklRef.current)return;
     setRaporYukl(true);setRaporVeri(null);setSagTab("rapor");setAktifEkran("rapor");
@@ -934,6 +1312,7 @@ export default function BorsaRadar() {
     try{const p=localStorage.getItem("br_portfoy");if(p)setPortfoy(JSON.parse(p));}catch{}
     try{const g=localStorage.getItem("br_gecmis");if(g)setGecmis(JSON.parse(g));}catch{}
     try{const k=localStorage.getItem("br_korel");if(k)setKorelasyon(JSON.parse(k));}catch{}
+    try{const t=localStorage.getItem("br_tahminler");if(t)setTahminler(JSON.parse(t));}catch{}
     try{const h=localStorage.getItem("br_haftalik");if(h)setHaftalik(JSON.parse(h));}catch{}
     return()=>{clearInterval(r1);clearInterval(r2);clearInterval(r3);clearInterval(cdRef.current);};
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -943,6 +1322,7 @@ export default function BorsaRadar() {
   useEffect(()=>{try{localStorage.setItem("br_gecmis",JSON.stringify(gecmis.slice(0,20)));}catch{}},[gecmis]);
   useEffect(()=>{try{localStorage.setItem("br_korel",JSON.stringify(korelasyon));}catch{}},[korelasyon]);
   useEffect(()=>{try{localStorage.setItem("br_haftalik",JSON.stringify(haftalik.slice(-200)));}catch{}},[haftalik]);
+  useEffect(()=>{try{localStorage.setItem("br_tahminler",JSON.stringify(tahminler.slice(0,100)));}catch{}},[tahminler]);
 
   // ─── HANDLERS ─────────────────────────────────────────────────────────────
   const hisseEkle=useCallback(()=>{if(!yeniHisse.sembol||!yeniHisse.adet||!yeniHisse.maliyet)return;setPortfoy(prev=>[...prev,{...yeniHisse,id:Date.now(),sembol:yeniHisse.sembol.toUpperCase()}]);setYeniHisse({sembol:"",adet:"",maliyet:""});},[yeniHisse]);
@@ -954,10 +1334,18 @@ export default function BorsaRadar() {
   const fmtCD=s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
   const hProps={haberler,yukl:haberYukl,hata:haberHata,filtre,setFiltre,secilenId,onClick:onHaberClick,onYenile:()=>haberleriYukle(true)};
-  const aProps={analizler,analizYukl,baslik:analizBaslik,aktif:aktifAI,setAktif:setAktifAI,goster};
+  const aProps={analizler,analizYukl,baslik:analizBaslik,aktif:aktifAI,setAktif:setAktifAI,goster,onTahminEkle:tahminEkle};
   const tProps={sembol:tekSembol,setSembol:setTekSembol,veri:tekVeri,yukl:tekYukl,hata:tekHata,tvSembol,onGoster:teknikGoster,aiAnalizler:tekAI,aiYukl:tekAIYukl,onAIAnalizEt:teknikAIAnalizEt,tab:tekTab,setTab:setTekTab};
   const bProps={bulten,yukl:bultenYukl,aktif:bultenAktif,setAktif:setBultenAktif,haberSayisi:haberler.length,onUret:bultenUret};
   const rProps={raporVeri,yukl:raporYukl,tip:raporTip,setTip:setRaporTip,aktifAI:raporAI,setAktifAI:setRaporAI,doviz,haberSayisi:haberler.length,onUret:raporUret};
+  const iProps={
+    duygu,duyguYukl,onDuyguHesapla:duyguHesapla,
+    sektor,sektorYukl,
+    zamanlama,zamanlamaYukl,onZamanlamaHesapla:zamanlamaHesapla,zamanlamaSembol,setZamanlamaSembol,
+    tahminler,onTahminGuncelle:tahminGuncelle,tahminGuncYukl,
+    aktifTab:istihbaratTab,setAktifTab:setIstihbaratTab,
+    haberler,
+  };
   const dProps={sekme:digerSekme,setSekme:setDigerSekme,portfoy,setPortfoy,yeniHisse,setYeniHisse,hisseEkle,manuel,setManuel,analizDevam,onManuelAnaliz,korelasyon,setKorelasyon,takvim,onTakvimAnaliz,gecmis,setGecmis,onGecmisYukle};
 
   return(
@@ -1059,12 +1447,14 @@ export default function BorsaRadar() {
               <button className={`tab${sagTab==="teknik"?" on":""}`} onClick={()=>setSagTab("teknik")}>📊 Teknik</button>
               <button className={`tab${sagTab==="rapor"?" on":""}`} onClick={()=>setSagTab("rapor")}>📋 Rapor {raporYukl&&<Dots size={4} color="#f0b040"/>}</button>
               <button className={`tab${sagTab==="bulten"?" on":""}`} onClick={()=>setSagTab("bulten")}>📰 Bülten {bultenYukl&&<Dots size={4} color="#ffa040"/>}</button>
+              <button className={`tab${sagTab==="istihbarat"?" on":""}`} onClick={()=>setSagTab("istihbarat")} style={{color:sagTab==="istihbarat"?"#c07ae0":""}}>🧠 İstihbarat {sektorYukl&&<Dots size={4} color="#c07ae0"/>}</button>
               <button className={`tab${sagTab==="diger"?" on":""}`} onClick={()=>setSagTab("diger")}>Diğer</button>
             </div>
             {sagTab==="analiz"&&<AnalizPaneli {...aProps}/>}
             {sagTab==="teknik"&&<TeknikPaneli {...tProps}/>}
             {sagTab==="rapor"&&<RaporPaneli {...rProps}/>}
             {sagTab==="bulten"&&<BultenPaneli {...bProps}/>}
+            {sagTab==="istihbarat"&&<IstihbaratPaneli {...iProps}/>}
             {sagTab==="diger"&&<DigerPaneli {...dProps}/>}
           </div>
         </div>
@@ -1090,13 +1480,14 @@ export default function BorsaRadar() {
             </div>
           )}
           {aktifEkran==="teknik"&&<TeknikPaneli {...tProps}/>}
+          {aktifEkran==="istihbarat"&&<IstihbaratPaneli {...iProps}/>}
           {aktifEkran==="rapor"&&<RaporPaneli {...rProps}/>}
           {aktifEkran==="diger"&&<DigerPaneli {...dProps}/>}
         </div>
 
         {/* ALT NAVİGASYON */}
         <div className="mob-nav">
-          {[{id:"haberler",icon:"📡",label:"Haberler",badge:haberler.length||null},{id:"analiz",icon:"🤖",label:"Analiz",badge:analizDevam?"●":null,bc:"#4a9a6a"},{id:"teknik",icon:"📊",label:"Teknik"},{id:"rapor",icon:"📋",label:"Rapor",badge:raporYukl?"●":null,bc:"#f0b040"},{id:"diger",icon:"⚙️",label:"Diğer",badge:portfoy.length||null}].map(({id,icon,label,badge,bc})=>(
+          {[{id:"haberler",icon:"📡",label:"Haberler",badge:haberler.length||null},{id:"analiz",icon:"🤖",label:"Analiz",badge:analizDevam?"●":null,bc:"#4a9a6a"},{id:"teknik",icon:"📊",label:"Teknik"},{id:"istihbarat",icon:"🧠",label:"İstihbarat"},{id:"diger",icon:"⚙️",label:"Diğer",badge:portfoy.length||null}].map(({id,icon,label,badge,bc})=>(
             <button key={id} onClick={()=>setAktifEkran(id)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,background:"none",border:"none",cursor:"pointer",position:"relative",color:aktifEkran===id?"#4aaa70":"#3a5060",fontFamily:"'Inter',sans-serif",paddingTop:6}}>
               <span style={{fontSize:20}}>{icon}</span>
               <span style={{fontSize:9,fontWeight:600}}>{label}</span>
