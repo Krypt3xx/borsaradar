@@ -192,7 +192,7 @@ const TeknikPaneli=memo(({sembol,setSembol,veri,yukl,hata,tvSembol,onGoster,aiAn
           </button>
         </div>
         <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-          {HIZLI.map(s=><button key={s} className="qtag" onClick={()=>onGoster(s)} style={{padding:"4px 8px"}}>{s}</button>)}
+          {HIZLI.map(s=><button key={s} className="qtag" onClick={()=>{setSembol(s);onGoster(s);}} style={{padding:"4px 8px"}}>{s}</button>)}
         </div>
       </div>
 
@@ -222,15 +222,103 @@ const TeknikPaneli=memo(({sembol,setSembol,veri,yukl,hata,tvSembol,onGoster,aiAn
             )}
           </div>
 
-          {/* GRAFIK */}
+          {/* GRAFIK — SVG tabanlı, kendi çizimimiz */}
           {tab==="grafik"&&(
             <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",minHeight:0}}>
-              <div style={{flex:1,minHeight:0}}>
-                <iframe key={tvSembol}
-                  src={`https://www.tradingview.com/widgetembed/?frameElementId=tv_br&symbol=${encodeURIComponent(tvSembol)}&interval=D&hidesidetoolbar=0&hidetoptoolbar=0&symboledit=1&saveimage=0&toolbarbg=0f1318&studies=RSI%40tv-basicstudies%1FMACD%40tv-basicstudies%1FBB%40tv-basicstudies&theme=dark&style=1&timezone=Europe%2FIstanbul&withdateranges=1&hidevolume=0&locale=tr`}
-                  style={{width:"100%",height:"100%",border:"none",display:"block"}} allowFullScreen/>
+              <div style={{flex:1,overflowY:"auto",padding:"12px",WebkitOverflowScrolling:"touch"}}>
+                {t?.grafik?(()=>{
+                  const fiyatlar=t.grafik.fiyatlar||[];
+                  const tarihler=t.grafik.tarihler||[];
+                  if(fiyatlar.length<2)return <div style={{textAlign:"center",padding:40,color:"#2a4050"}}>Grafik verisi yetersiz</div>;
+                  const W=560,H=200,padL=56,padR=14,padT=12,padB=28;
+                  const xs=W-padL-padR,ys=H-padT-padB;
+                  const minF=Math.min(...fiyatlar)*0.998,maxF=Math.max(...fiyatlar)*1.002;
+                  const xS=i=>padL+(i/(fiyatlar.length-1))*xs;
+                  const yS=v=>padT+ys-(((v-minF)/(maxF-minF))*ys);
+                  const pts=fiyatlar.map((v,i)=>`${xS(i)},${yS(v)}`).join(" ");
+                  const area=`M${xS(0)},${H-padB} L${fiyatlar.map((v,i)=>`${xS(i)},${yS(v)}`).join(" L")} L${xS(fiyatlar.length-1)},${H-padB} Z`;
+                  const sonFiyat=fiyatlar.at(-1),ilkFiyat=fiyatlar[0];
+                  const yukselis=sonFiyat>=ilkFiyat;
+                  const renk=yukselis?"#50dd90":"#ff7070";
+                  const gridYs=[0,0.25,0.5,0.75,1];
+                  // MA20 çizgisi (varsa)
+                  const ma20pts=t.ma20?fiyatlar.map((_,i)=>`${xS(i)},${yS(t.ma20)}`).join(" "):null;
+                  return(
+                    <div>
+                      {/* Fiyat özet */}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,padding:"8px 12px",background:"#0d1520",borderRadius:8,border:"1px solid #1e3040"}}>
+                        <div>
+                          <span style={{fontSize:22,fontWeight:800,color:"#e0f0e8",fontFamily:"monospace"}}>{t.fiyat}</span>
+                          <span style={{fontSize:11,color:"#3a6050",marginLeft:8}}>{tvSembol}</span>
+                        </div>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{fontSize:14,fontWeight:700,color:renk}}>{yukselis?"▲":"▼"} {(((sonFiyat-ilkFiyat)/ilkFiyat)*100).toFixed(2)}%</div>
+                          <div style={{fontSize:10,color:"#3a5060"}}>Son 30 gün</div>
+                        </div>
+                      </div>
+                      {/* SVG Grafik */}
+                      <div style={{background:"#0a1018",border:"1px solid #1a2a38",borderRadius:8,overflow:"hidden",marginBottom:8}}>
+                        <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",display:"block"}}>
+                          <defs>
+                            <linearGradient id="grd" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={renk} stopOpacity="0.25"/>
+                              <stop offset="100%" stopColor={renk} stopOpacity="0.02"/>
+                            </linearGradient>
+                          </defs>
+                          {/* Grid yatay çizgiler */}
+                          {gridYs.map(r=>{
+                            const y=padT+r*ys;
+                            const val=maxF-r*(maxF-minF);
+                            return(
+                              <g key={r}>
+                                <line x1={padL} y1={y} x2={W-padR} y2={y} stroke="#1a2530" strokeWidth={1}/>
+                                <text x={padL-4} y={y+3} fill="#2a4050" fontSize={9} textAnchor="end">{val.toFixed(val>100?0:2)}</text>
+                              </g>
+                            );
+                          })}
+                          {/* Grid dikey çizgiler + tarih etiketleri */}
+                          {[0,Math.floor(fiyatlar.length/4),Math.floor(fiyatlar.length/2),Math.floor(fiyatlar.length*3/4),fiyatlar.length-1].map(i=>(
+                            <g key={i}>
+                              <line x1={xS(i)} y1={padT} x2={xS(i)} y2={H-padB} stroke="#1a2530" strokeWidth={1} strokeDasharray="2,4"/>
+                              <text x={xS(i)} y={H-padB+14} fill="#2a4050" fontSize={8} textAnchor="middle">{tarihler[i]||""}</text>
+                            </g>
+                          ))}
+                          {/* Alan */}
+                          <path d={area} fill="url(#grd)"/>
+                          {/* MA20 referans çizgisi */}
+                          {ma20pts&&<polyline points={ma20pts} fill="none" stroke="#4a7090" strokeWidth={1} strokeDasharray="4,3"/>}
+                          {/* Fiyat çizgisi */}
+                          <polyline points={pts} fill="none" stroke={renk} strokeWidth={2} strokeLinejoin="round"/>
+                          {/* Son nokta */}
+                          <circle cx={xS(fiyatlar.length-1)} cy={yS(sonFiyat)} r={4} fill={renk}/>
+                          <circle cx={xS(fiyatlar.length-1)} cy={yS(sonFiyat)} r={7} fill={renk} opacity={0.2}/>
+                          {/* MA20 etiketi */}
+                          {t.ma20&&<text x={W-padR} y={yS(t.ma20)-3} fill="#4a7090" fontSize={8} textAnchor="end">MA20 {t.ma20}</text>}
+                        </svg>
+                      </div>
+                      {/* Hacim bar'ları varsa — mini gösterge */}
+                      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                        {[
+                          {l:"RSI",v:t.rsi,y:t.rsiYorum,c:t.rsi>70?"#ff7070":t.rsi<30?"#50dd90":"#80cccc"},
+                          {l:"MACD",v:t.macd?.deger,y:t.macdYorum,c:t.macd?.histogram>0?"#50dd90":"#ff7070"},
+                          {l:"MA20",v:t.ma20,y:t.fiyat>t.ma20?"Fiyat üstünde":"Fiyat altında",c:t.fiyat>t.ma20?"#50dd90":"#ff7070"},
+                          t.ma50&&{l:"MA50",v:t.ma50,y:t.fiyat>t.ma50?"Üstünde":"Altında",c:t.fiyat>t.ma50?"#50dd90":"#ff7070"},
+                        ].filter(Boolean).map(x=>(
+                          <div key={x.l} style={{background:"#101820",border:"1px solid #1e2d38",borderRadius:6,padding:"6px 10px",flex:1,minWidth:80}}>
+                            <div style={{fontSize:9,color:"#3a6070",marginBottom:2}}>{x.l}</div>
+                            <div style={{fontSize:13,fontWeight:700,color:x.c,fontFamily:"monospace"}}>{typeof x.v==="number"?x.v.toFixed(x.v>100?1:2):x.v}</div>
+                            <div style={{fontSize:9,color:x.c,marginTop:1}}>{x.y}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })():(
+                  hata
+                  ?<div style={{padding:20,background:"#180808",border:"1px solid #3a1010",borderRadius:8,color:"#e07070",fontSize:12}}>⚠ {hata}<br/><button onClick={()=>onGoster(tvSembol)} className="btn-p" style={{marginTop:10,fontSize:11,padding:"6px 14px"}}>Tekrar Dene</button></div>
+                  :<div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"60%",gap:10}}><Dots/><div style={{fontSize:12,color:"#4a8a6a"}}>Grafik yükleniyor...</div></div>
+                )}
               </div>
-              {hata&&<div style={{padding:"5px 12px",background:"#140e0a",borderTop:"1px solid #2a1a0a",fontSize:10,color:"#cc8844",flexShrink:0}}>⚠ Gösterge API hatası — grafik çalışıyor</div>}
               <div style={{padding:"8px 12px",borderTop:"1px solid #1a2530",background:"#0b0f14",display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
                 <button className="btn-p" onClick={onAIAnalizEt} disabled={aiYukl} style={{flex:1,padding:"9px",fontSize:12,borderColor:"#3a5a80",color:"#80a8e0",background:"#0a1428"}}>
                   {aiYukl?<><Dots color="#80a8e0" size={5}/> Analiz ediliyor...</>:"🤖 3 AI ile AL / SAT / BEKLE Kararı Al"}
@@ -794,14 +882,22 @@ export default function BorsaRadar() {
   },[]);
 
   const teknikGoster=useCallback(async(s)=>{
-    if(!s||tekLock.current)return;
-    tekLock.current=true;
+    if(!s)return;
     const sembol=s.trim().toUpperCase();
-    setTekSembol(sembol);setTvSembol(toBIST(sembol));setTekAI(null);setTekTab("grafik");
-    setTekYukl(true);setTekVeri(null);setTekHata("");
-    try{const r=await fetch(`/api/teknik?sembol=${encodeURIComponent(sembol)}`);const d=await r.json();if(d.error)throw new Error(d.error);setTekVeri(d);}
-    catch(e){setTekHata(e.message);}
-    setTekYukl(false);tekLock.current=false;
+    setTekSembol(sembol);
+    setTvSembol(sembol);
+    setTekAI(null);
+    setTekTab("grafik");
+    setTekYukl(true);
+    setTekVeri(null);
+    setTekHata("");
+    try{
+      const r=await fetch(`/api/teknik?sembol=${encodeURIComponent(sembol)}`);
+      const d=await r.json();
+      if(d.error)throw new Error(d.error);
+      setTekVeri(d);
+    }catch(e){setTekHata(e.message);}
+    setTekYukl(false);
   },[]);
 
   const teknikAIAnalizEt=useCallback(async()=>{
@@ -884,6 +980,7 @@ export default function BorsaRadar() {
             <span style={{width:6,height:6,borderRadius:"50%",background:"#3aaa60",display:"inline-block",boxShadow:"0 0 6px #3aaa6088"}}/>
             <span style={{fontSize:10,color:"#4a8a60",fontWeight:500}}>Canlı</span>
             {sonGun&&<span style={{fontSize:10,color:"#2a4a40"}}>· {sonGun}</span>}
+            <a href="/simulasyon" style={{fontSize:10,fontWeight:600,color:"#8a5af0",background:"#1a0e28",border:"1px solid #3a1e60",padding:"3px 10px",borderRadius:5,textDecoration:"none",letterSpacing:".02em"}}>🎮 Sim</a>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:7}}>
             {/* Mobil hızlı butonlar — CSS ile gösterilir */}

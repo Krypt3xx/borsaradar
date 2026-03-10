@@ -111,6 +111,14 @@ export default async function handler(req, res) {
       const rsiYorum = rsi>70?"AŞIRI ALIM ⚠️":rsi>60?"GÜÇLÜ 📈":rsi<30?"AŞIRI SATIM 🔥":rsi<40?"ZAYIF 📉":"NÖTR ◆";
       const macdYorum = macd.histogram>0&&macd.deger>macd.signal?"YUKARI 📈":macd.histogram<0&&macd.deger<macd.signal?"AŞAĞI 📉":"SINIRDA ◆";
 
+      // Teknik güç skoru (0-100)
+      let guc = 50;
+      if (rsi > 50) guc += (rsi - 50) * 0.5; else guc -= (50 - rsi) * 0.5;
+      if (macd.histogram > 0) guc += 10; else guc -= 10;
+      if (sonFiyat > ma20) guc += 10; else guc -= 10;
+      if (ma50 && sonFiyat > ma50) guc += 5; else if (ma50) guc -= 5;
+      guc = Math.max(0, Math.min(100, Math.round(guc)));
+
       return res.status(200).json({
         sembol: sembol.toUpperCase(),
         yahooSembol,
@@ -120,6 +128,7 @@ export default async function handler(req, res) {
         ma20, ma50, trend,
         seviyeler,
         hacim: { son: hacimSon, ortalama: hacimOrt, yorum: hacimSon>hacimOrt*1.5?"YÜKSEK 🔥":hacimSon<hacimOrt*0.5?"DÜŞÜK":"NORMAL" },
+        guc,
         grafik: {
           fiyatlar: gecerli.slice(-30).map(v => parseFloat(v.toFixed(2))),
           tarihler: timestamps.slice(-30).map(t => new Date(t*1000).toLocaleDateString("tr-TR",{month:"short",day:"numeric"})),
