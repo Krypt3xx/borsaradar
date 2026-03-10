@@ -1,23 +1,33 @@
-// Teknik veri — Yahoo Finance v8 chart endpoint (daha güvenilir)
+// Teknik veri — Yahoo Finance v8 chart endpoint
+// BIST otomatik algılama: .IS ekliyse bırak, yoksa önce .IS ile dene, çalışmazsa düz dene
 export default async function handler(req, res) {
   const { sembol } = req.query;
   if (!sembol) return res.status(400).json({ error: "sembol gerekli" });
 
   res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=60");
 
-  // Yahoo sembol dönüşümü: BIST hisseleri .IS eki alır
-  const bistSemboller = ["TUPRS","THYAO","EREGL","ASELS","GARAN","AKBNK","YKBNK","BIMAS","SISE","KCHOL","TCELL","PETKM","FROTO","TOASO","OYAKC","PGSUS","TAVHL","EKGYO","ISCTR","TTKOM","SAHOL","KOZAL","MGROS","ULKER","ARCLK","VESBE","TSKB","HALKB","VAKBN","SKBNK"];
-  const yahooSembol = bistSemboller.includes(sembol.toUpperCase()) ? `${sembol}.IS` : sembol;
+  const s = sembol.toUpperCase().trim();
+
+  // Kullanıcı zaten .IS yazmışsa direkt kullan
+  // Yoksa: önce .IS ile dene (BIST), çalışmazsa düz sembol (global) dene
+  const yahooDeneme1 = s.endsWith(".IS") ? s : `${s}.IS`;
+  const yahooDeneme2 = s.endsWith(".IS") ? s : s; // global fallback
 
   const bitis = Math.floor(Date.now() / 1000);
-  const baslangic = bitis - 90 * 24 * 3600; // 90 günlük veri
+  const baslangic = bitis - 90 * 24 * 3600;
 
-  // Birden fazla endpoint dene
-  const endpoints = [
-    `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSembol)}?interval=1d&period1=${baslangic}&period2=${bitis}&includePrePost=false`,
-    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSembol)}?interval=1d&period1=${baslangic}&period2=${bitis}`,
-    `https://query1.finance.yahoo.com/v7/finance/download/${encodeURIComponent(yahooSembol)}?period1=${baslangic}&period2=${bitis}&interval=1d`,
-  ];
+  // Tüm kombinasyonları sırayla dene
+  const tumDenemeler = s.endsWith(".IS")
+    ? [s] // zaten .IS yazılmış
+    : [s + ".IS", s]; // önce BIST dene, sonra global
+
+  let endpoints = [];
+  for (const yahooSembol of tumDenemeler) {
+    endpoints.push(
+      { url: `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSembol)}?interval=1d&period1=${baslangic}&period2=${bitis}&includePrePost=false`, yahooSembol },
+      { url: `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSembol)}?interval=1d&period1=${baslangic}&period2=${bitis}`, yahooSembol },
+    );
+  }
 
   const headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -27,7 +37,7 @@ export default async function handler(req, res) {
     "Origin": "https://finance.yahoo.com",
   };
 
-  for (const url of endpoints) {
+  for (const { url, yahooSembol } of endpoints) {
     try {
       const r = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
       if (!r.ok) continue;

@@ -101,6 +101,11 @@ const PortfoyKarti = memo(({ ai, portfoy, bakiye, loglar, yukl, onKarar, onFiyat
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
             <span style={{ fontSize: 11, fontWeight: 800, color: sonLog.islem === "AL" ? "#50dd90" : sonLog.islem === "SAT" ? "#ff7070" : "#ffcc44", fontFamily: "monospace" }}>{sonLog.islem}</span>
             {sonLog.sembol && <span style={{ fontSize: 11, color: "#80b0c0", fontFamily: "monospace" }}>{sonLog.sembol}</span>}
+            {sonLog.fiyat && (
+              <span style={{ fontSize: 11, fontFamily: "monospace", color: sonLog.islem === "AL" ? "#50dd90" : "#ff9060", background: "#00000030", padding: "1px 6px", borderRadius: 3 }}>
+                @ {sonLog.para === "USD" ? "$" : "₺"}{para(sonLog.fiyat, sonLog.fiyat > 100 ? 2 : 4)}
+              </span>
+            )}
             {sonLog.miktar_tl && <span style={{ fontSize: 10, color: "#4a6070" }}>{paraTL(sonLog.miktar_tl)}</span>}
             <span style={{ fontSize: 9, color: "#2a4050", marginLeft: "auto" }}>{sonLog.tarih}</span>
           </div>
@@ -137,7 +142,7 @@ const LogTablosu = memo(({ loglar, aiRenkler }) => {
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
         <thead>
           <tr style={{ borderBottom: "1px solid #1e3040", color: "#3a6070", textAlign: "left" }}>
-            {["Tarih", "AI", "İşlem", "Sembol", "Tutar", "Fiyat", "Gerekçe"].map(h => (
+            {["Tarih", "AI", "İşlem", "Sembol", "Adet", "Al/Sat Fiyatı", "Tutar", "K/Z", "Gerekçe"].map(h => (
               <th key={h} style={{ padding: "8px 10px", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
             ))}
           </tr>
@@ -158,9 +163,25 @@ const LogTablosu = memo(({ loglar, aiRenkler }) => {
                   <span style={{ color: iRenk, fontWeight: 800, fontFamily: "monospace", background: iRenk + "15", padding: "2px 8px", borderRadius: 4 }}>{log.islem}</span>
                 </td>
                 <td style={{ padding: "8px 10px", color: "#80d0a0", fontFamily: "monospace", fontWeight: 700 }}>{log.sembol || "—"}</td>
+                <td style={{ padding: "8px 10px", color: "#8090a0", fontFamily: "monospace", fontSize: 10 }}>
+                  {log.adet ? para(log.adet, log.adet < 1 ? 4 : 2) : "—"}
+                </td>
+                <td style={{ padding: "8px 10px", fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                  {log.fiyat
+                    ? <span style={{ color: log.islem === "AL" ? "#50dd90" : log.islem === "SAT" ? "#ff9060" : "#c0d8e4", fontWeight: 700 }}>
+                        {log.para === "USD" ? "$" : "₺"}{para(log.fiyat, log.fiyat > 100 ? 2 : 4)}
+                      </span>
+                    : "—"}
+                </td>
                 <td style={{ padding: "8px 10px", color: "#c0d8e4", fontFamily: "monospace", whiteSpace: "nowrap" }}>{log.miktar_tl ? paraTL(log.miktar_tl) : "—"}</td>
-                <td style={{ padding: "8px 10px", color: "#c0d8e4", fontFamily: "monospace" }}>{log.fiyat ? `₺${para(log.fiyat, 2)}` : "—"}</td>
-                <td style={{ padding: "8px 10px", color: "#6a9090", maxWidth: 280, lineHeight: 1.4 }}>{log.gerekce}</td>
+                <td style={{ padding: "8px 10px", fontFamily: "monospace", whiteSpace: "nowrap" }}>
+                  {log.plTL != null
+                    ? <span style={{ color: log.plTL >= 0 ? "#50dd90" : "#ff7070", fontWeight: 700 }}>
+                        {log.plTL >= 0 ? "+" : ""}{paraTL(log.plTL)}
+                      </span>
+                    : <span style={{ color: "#3a5060" }}>—</span>}
+                </td>
+                <td style={{ padding: "8px 10px", color: "#6a9090", maxWidth: 240, lineHeight: 1.4 }}>{log.gerekce}</td>
               </tr>
             );
           })}
@@ -392,7 +413,29 @@ export default function SimulasyonSayfasi() {
       if (!res.ok) throw new Error(res.error || "AI yanıt vermedi");
 
       const karar = res.karar;
-      const log = { ...karar, aiId, tarih: tarih(), id: Date.now() };
+
+      // Gerçek anlık fiyatı çek — AL veya SAT işlemlerinde
+      let gercekFiyat = null;
+      let paraBirimi = "TRY";
+      if ((karar.islem === "AL" || karar.islem === "SAT") && karar.sembol) {
+        try {
+          const fr = await fetch(`/api/sim-fiyat?sembol=${encodeURIComponent(karar.sembol)}`);
+          const fd = await fr.json();
+          if (fd.fiyat) {
+            gercekFiyat = fd.fiyat;
+            paraBirimi = fd.para || "TRY";
+          }
+        } catch {}
+      }
+
+      const log = {
+        ...karar,
+        aiId,
+        tarih: tarih(),
+        id: Date.now(),
+        fiyat: gercekFiyat,
+        para: paraBirimi,
+      };
 
       // İşlemi gerçekleştir
       setDurumlar(prev => {
@@ -402,49 +445,57 @@ export default function SimulasyonSayfasi() {
         if (karar.islem === "AL" && karar.sembol && karar.miktar_tl > 0) {
           if (durum.bakiye < karar.miktar_tl) {
             log.gerekce += ` [YETERSİZ BAKİYE — ${paraTL(durum.bakiye)} mevcut]`;
+          } else if (!gercekFiyat) {
+            log.gerekce += ` [FİYAT ALINAMADI — işlem iptal]`;
           } else {
-            // Gerçek fiyat çekmeyi dene — yoksa tahmini kullan
-            const mevcut = durum.portfoy.find(p => p.sembol === karar.sembol);
-            const fiyatTahmin = mevcut?.guncelFiyat || mevcut?.alisFiyat || (karar.miktar_tl / 100);
-            const adet = karar.miktar_tl / fiyatTahmin;
+            const adet = karar.miktar_tl / gercekFiyat;
+            const mevcut = durum.portfoy.find(p => p.sembol === karar.sembol.toUpperCase());
             if (mevcut) {
-              // Ortalama maliyet hesapla
+              // Ortalama maliyet güncelle
               const yeniAdet = mevcut.adet + adet;
-              const yeniMaliyet = (mevcut.alisFiyat * mevcut.adet + fiyatTahmin * adet) / yeniAdet;
-              durum.portfoy = durum.portfoy.map(p => p.sembol === karar.sembol
-                ? { ...p, adet: yeniAdet, alisFiyat: yeniMaliyet }
+              const yeniMaliyet = (mevcut.alisFiyat * mevcut.adet + gercekFiyat * adet) / yeniAdet;
+              durum.portfoy = durum.portfoy.map(p => p.sembol === karar.sembol.toUpperCase()
+                ? { ...p, adet: yeniAdet, alisFiyat: parseFloat(yeniMaliyet.toFixed(4)), guncelFiyat: gercekFiyat }
                 : p
               );
             } else {
               durum.portfoy = [...durum.portfoy, {
-                sembol: karar.sembol,
+                sembol: karar.sembol.toUpperCase(),
                 adet,
-                alisFiyat: fiyatTahmin,
-                guncelFiyat: fiyatTahmin,
+                alisFiyat: gercekFiyat,
+                guncelFiyat: gercekFiyat,
+                para: paraBirimi,
               }];
             }
             durum.bakiye -= karar.miktar_tl;
-            log.fiyat = fiyatTahmin;
+            log.adet = adet;
           }
         } else if (karar.islem === "SAT" && karar.sembol) {
-          const pos = durum.portfoy.find(p => p.sembol === karar.sembol);
+          const pos = durum.portfoy.find(p => p.sembol === karar.sembol.toUpperCase());
           if (!pos) {
             log.gerekce += ` [POZİSYON YOK — ${karar.sembol} portföyde değil]`;
           } else {
-            const fiyat = pos.guncelFiyat || pos.alisFiyat;
+            const satisFiyati = gercekFiyat || pos.guncelFiyat || pos.alisFiyat;
+            log.fiyat = satisFiyati;
+            log.alisFiyati = pos.alisFiyat; // alış referansı için sakla
             let satAdet = pos.adet;
-            if (karar.miktar_tl && karar.miktar_tl < pos.adet * fiyat) {
-              satAdet = karar.miktar_tl / fiyat;
+            if (karar.miktar_tl && karar.miktar_tl < pos.adet * satisFiyati) {
+              satAdet = karar.miktar_tl / satisFiyati;
             }
-            const gelir = satAdet * fiyat;
+            const gelir = satAdet * satisFiyati;
+            const plTL = (satisFiyati - pos.alisFiyat) * satAdet;
             durum.bakiye += gelir;
-            log.fiyat = fiyat;
             log.miktar_tl = gelir;
+            log.plTL = plTL; // kâr/zarar
+            log.adet = satAdet;
             const kalanAdet = pos.adet - satAdet;
             if (kalanAdet < 0.0001) {
-              durum.portfoy = durum.portfoy.filter(p => p.sembol !== karar.sembol);
+              durum.portfoy = durum.portfoy.filter(p => p.sembol !== karar.sembol.toUpperCase());
             } else {
-              durum.portfoy = durum.portfoy.map(p => p.sembol === karar.sembol ? { ...p, adet: kalanAdet } : p);
+              durum.portfoy = durum.portfoy.map(p => p.sembol === karar.sembol.toUpperCase()
+                ? { ...p, adet: kalanAdet, guncelFiyat: satisFiyati }
+                : p
+              );
             }
           }
         }
@@ -497,18 +548,25 @@ export default function SimulasyonSayfasi() {
 
     setYukl(p => ({ ...p, [manuelAI]: true }));
     try {
-      // Gerçek fiyat çek
+      // Gerçek anlık fiyat çek
       const r = await fetch(`/api/sim-fiyat?sembol=${encodeURIComponent(manuelSembol)}`);
       const fd = await r.json();
       const fiyat = fd.fiyat;
-      if (!fiyat) throw new Error("Fiyat alınamadı");
+      const paraBirimi = fd.para || "TRY";
+      if (!fiyat) throw new Error(fd.error || "Fiyat alınamadı — sembol geçersiz olabilir");
+
+      const s = manuelSembol.toUpperCase();
+      const sembolGercek = fd.yahooSembol?.replace(".IS","") || s; // .IS olmadan göster
+      const adet = manuelIslem === "AL" ? tutar / fiyat : null;
 
       const log = {
         aiId: manuelAI,
         islem: manuelIslem,
-        sembol: manuelSembol.toUpperCase(),
+        sembol: sembolGercek,
         miktar_tl: tutar,
         fiyat,
+        para: paraBirimi,
+        adet: manuelIslem === "AL" ? adet : null,
         gerekce: "Manuel işlem",
         strateji: "Manuel",
         tarih: tarih(),
@@ -518,39 +576,47 @@ export default function SimulasyonSayfasi() {
 
       setDurumlar(prev => {
         const durum = { ...prev[manuelAI] };
-        durum.loglar = [...durum.loglar, log];
-        const s = manuelSembol.toUpperCase();
         if (manuelIslem === "AL") {
-          if (durum.bakiye < tutar) throw new Error("Yetersiz bakiye");
-          const adet = tutar / fiyat;
-          const mevcut = durum.portfoy.find(p => p.sembol === s);
+          if (durum.bakiye < tutar) throw new Error(`Yetersiz bakiye — ${paraTL(durum.bakiye)} mevcut`);
+          const mevcut = durum.portfoy.find(p => p.sembol === sembolGercek);
           if (mevcut) {
             const yeniAdet = mevcut.adet + adet;
             const yeniM = (mevcut.alisFiyat * mevcut.adet + fiyat * adet) / yeniAdet;
-            durum.portfoy = durum.portfoy.map(p => p.sembol === s ? { ...p, adet: yeniAdet, alisFiyat: yeniM, guncelFiyat: fiyat } : p);
+            durum.portfoy = durum.portfoy.map(p => p.sembol === sembolGercek
+              ? { ...p, adet: yeniAdet, alisFiyat: parseFloat(yeniM.toFixed(4)), guncelFiyat: fiyat, para: paraBirimi }
+              : p
+            );
           } else {
-            durum.portfoy = [...durum.portfoy, { sembol: s, adet, alisFiyat: fiyat, guncelFiyat: fiyat }];
+            durum.portfoy = [...durum.portfoy, { sembol: sembolGercek, adet, alisFiyat: fiyat, guncelFiyat: fiyat, para: paraBirimi }];
           }
           durum.bakiye -= tutar;
         } else {
-          const pos = durum.portfoy.find(p => p.sembol === s);
-          if (!pos) throw new Error("Pozisyon yok");
+          const pos = durum.portfoy.find(p => p.sembol === sembolGercek);
+          if (!pos) throw new Error(`Pozisyon yok — ${sembolGercek} portföyde değil`);
           const satAdet = Math.min(pos.adet, tutar / fiyat);
           const gelir = satAdet * fiyat;
-          durum.bakiye += gelir;
+          const plTL = (fiyat - pos.alisFiyat) * satAdet;
+          log.adet = satAdet;
           log.miktar_tl = gelir;
+          log.plTL = plTL;
+          log.alisFiyati = pos.alisFiyat;
+          durum.bakiye += gelir;
           const kalan = pos.adet - satAdet;
-          durum.portfoy = kalan < 0.0001 ? durum.portfoy.filter(p => p.sembol !== s) : durum.portfoy.map(p => p.sembol === s ? { ...p, adet: kalan } : p);
+          durum.portfoy = kalan < 0.0001
+            ? durum.portfoy.filter(p => p.sembol !== sembolGercek)
+            : durum.portfoy.map(p => p.sembol === sembolGercek ? { ...p, adet: kalan, guncelFiyat: fiyat } : p);
         }
+        durum.loglar = [...durum.loglar, log];
         const yeni = { ...prev, [manuelAI]: durum };
         snapshotEkle(yeni);
         return yeni;
       });
 
+      const semPara = paraBirimi === "USD" ? "$" : "₺";
       setManuelSembol(""); setManuelTutar("");
-      setMesaj({ tip: "basari", text: `Manuel: ${manuelIslem} ${s} @ ₺${para(fiyat, 2)} — ₺${para(tutar, 0)}` });
+      setMesaj({ tip: "basari", text: `✅ Manuel: ${manuelIslem} ${sembolGercek} @ ${semPara}${para(fiyat, fiyat > 100 ? 2 : 4)} | ${paraTL(tutar)}` });
     } catch (e) {
-      setMesaj({ tip: "hata", text: `Manuel işlem hatası: ${e.message}` });
+      setMesaj({ tip: "hata", text: `❌ Manuel işlem hatası: ${e.message}` });
     }
     setYukl(p => ({ ...p, [manuelAI]: false }));
     setTimeout(() => setMesaj(null), 5000);
