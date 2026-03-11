@@ -118,7 +118,7 @@ const HaberListesi=memo(({haberler,yukl,hata,filtre,setFiltre,secilenId,onClick,
 });
 
 // ─── ANALİZ PANELİ ────────────────────────────────────────────────────────────
-const AnalizPaneli=memo(({analizler,analizYukl,baslik,aktif,setAktif,goster,onTahminEkle})=>{
+const AnalizPaneli=memo(({analizler,analizYukl,baslik,aktif,setAktif,goster})=>{
   if(!goster&&!Object.values(analizYukl).some(v=>v))return(
     <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:14,textAlign:"center",padding:24}}>
       <div style={{display:"flex",gap:12}}>{Object.values(AIT).map(ai=><div key={ai.isim} style={{width:52,height:52,borderRadius:12,background:ai.bg,border:`2px solid ${ai.bd}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,color:ai.renk}}>{ai.logo}</div>)}</div>
@@ -152,11 +152,6 @@ const AnalizPaneli=memo(({analizler,analizYukl,baslik,aktif,setAktif,goster,onTa
                 <span style={{fontSize:16,color:AIT[aktif].renk}}>{AIT[aktif].logo}</span>
                 <span style={{fontSize:12,fontWeight:600,color:AIT[aktif].renk}}>{AIT[aktif].isim}</span>
               </div>
-              {onTahminEkle && analizler[aktif] && (
-                <TahminEkleButon aiId={aktif} analizMetni={analizler[aktif]} onEkle={onTahminEkle}/>
-              )}
-            </div>
-            <div style={{fontSize:13,lineHeight:1.85,color:"#a8c4cc"}} dangerouslySetInnerHTML={{__html:md(analizler[aktif])}}/>
           </div>
         ):(
           <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"60%",color:"#1e3040",fontSize:12}}>Bu AI için analiz bekleniyor...</div>
@@ -650,54 +645,6 @@ const RaporPaneli=memo(({raporVeri,yukl,tip,setTip,aktifAI,setAktifAI,doviz,habe
 ));
 
 // ─── DİĞER PANELİ ─────────────────────────────────────────────────────────────
-// ─── TAHMİN EKLE BUTONU ──────────────────────────────────────────────────────
-const TahminEkleButon = memo(function TahminEkleButon({aiId, analizMetni, onEkle}) {
-  const [acik, setAcik] = useState(false);
-  const [sembol, setSembol] = useState("");
-  const [yon, setYon] = useState("AL");
-  const [hedef, setHedef] = useState("");
-  const [yukl, setYukl] = useState(false);
-
-  const ekle = useCallback(async () => {
-    if (!sembol) return;
-    setYukl(true);
-    let girisFiyat = null, para = "TRY";
-    try {
-      const r = await fetch("/api/sim-fiyat?sembol=" + encodeURIComponent(sembol));
-      const d = await r.json();
-      if (d && d.fiyat) { girisFiyat = d.fiyat; para = d.para || "TRY"; }
-    } catch(e) {}
-    setYukl(false);
-    if (onEkle) onEkle(sembol, yon, hedef ? parseFloat(hedef) : null, aiId, analizMetni ? String(analizMetni).slice(0,100) : null, girisFiyat, para);
-    setSembol(""); setHedef(""); setAcik(false);
-  }, [sembol, yon, hedef, aiId, analizMetni, onEkle]);
-
-  if (!acik) return (
-    <button onClick={()=>setAcik(true)} style={{fontSize:10,padding:"4px 10px",background:"#1a2d1a",border:"1px solid #3a6a3a",borderRadius:5,color:"#60cc80",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
-      📌 Takibe Al
-    </button>
-  );
-  return (
-    <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-      <input placeholder="SEMBOL" value={sembol} onChange={e=>setSembol(e.target.value.toUpperCase())}
-        style={{width:70,fontSize:11,padding:"3px 6px",background:"#0a1520",border:"1px solid #2a4050",borderRadius:4,color:"#c0d8e4",outline:"none",fontFamily:"monospace"}}/>
-      <select value={yon} onChange={e=>setYon(e.target.value)}
-        style={{fontSize:11,padding:"3px 6px",background:"#0a1520",border:"1px solid #2a4050",borderRadius:4,color:yon==="AL"?"#50dd90":"#ff7070",outline:"none"}}>
-        <option value="AL">AL</option>
-        <option value="SAT">SAT</option>
-      </select>
-      <input placeholder="Hedef%" value={hedef} onChange={e=>setHedef(e.target.value)}
-        style={{width:55,fontSize:11,padding:"3px 6px",background:"#0a1520",border:"1px solid #2a4050",borderRadius:4,color:"#c0d8e4",outline:"none"}}/>
-      <button onClick={ekle} disabled={!sembol||yukl}
-        style={{fontSize:10,padding:"4px 10px",background:"#1a3a20",border:"1px solid #3a7a40",borderRadius:4,color:"#60dd80",cursor:"pointer"}}>
-        {yukl ? "..." : "✓ Ekle"}
-      </button>
-      <button onClick={()=>setAcik(false)}
-        style={{fontSize:10,padding:"4px 8px",background:"none",border:"1px solid #2a3a40",borderRadius:4,color:"#3a5060",cursor:"pointer"}}>✕</button>
-    </div>
-  );
-});
-
 // ─── İSTİHBARAT PANELİ ───────────────────────────────────────────────────────
 const IstihbaratPaneli = memo(function IstihbaratPaneli(props) {
   const duygu           = props.duygu       || null;
@@ -711,8 +658,6 @@ const IstihbaratPaneli = memo(function IstihbaratPaneli(props) {
   const zamanlamaSembol = props.zamanlamaSembol || "";
   const setZamanlamaSembol = props.setZamanlamaSembol;
   const tahminler       = props.tahminler   || [];
-  const onTahminGuncelle = props.onTahminGuncelle;
-  const tahminGuncYukl  = props.tahminGuncYukl || false;
   const aktifTab        = props.aktifTab    || "duygu";
   const setAktifTab     = props.setAktifTab;
   const haberler        = props.haberler    || [];
@@ -720,7 +665,7 @@ const IstihbaratPaneli = memo(function IstihbaratPaneli(props) {
   return (
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{display:"flex",borderBottom:"1px solid #1a2530",flexShrink:0,background:"#0b0f14",overflowX:"auto"}}>
-        {[["duygu","🧠 Duygu"],["sektor","🗺 Sektör"],["zamanlama","⏱ Zamanlama"],["tahmin","🎯 Tahmin"]].map(function(item) {
+        {[["duygu","🧠 Duygu"],["sektor","🗺 Sektör"],["zamanlama","⏱ Zamanlama"]].map(function(item) {
           return <button key={item[0]} className={"tab"+(aktifTab===item[0]?" on":"")} onClick={function(){setAktifTab(item[0]);}} style={{fontSize:11}}>{item[1]}</button>;
         })}
       </div>
@@ -835,13 +780,9 @@ const IstihbaratPaneli = memo(function IstihbaratPaneli(props) {
         </div>
       )}
 
-      {aktifTab==="tahmin" && (
         <div style={{flex:1,overflowY:"auto",padding:12,WebkitOverflowScrolling:"touch"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div style={{fontSize:13,fontWeight:700,color:"#4a8090"}}>🎯 Tahmin Başarı Takibi</div>
             {tahminler.length > 0 && (
-              <button onClick={onTahminGuncelle} disabled={tahminGuncYukl} className="btn-p" style={{padding:"6px 14px",fontSize:11}}>
-                {tahminGuncYukl ? <Dots size={4}/> : "↻ Fiyat"}
               </button>
             )}
           </div>
@@ -1174,81 +1115,7 @@ export default function BorsaRadar() {
   },[]);
 
 
-  // ─── DUYGU ENDEKSİ ────────────────────────────────────────────────────────
-  const duyguHesapla = useCallback(async () => {
-    const h = haberlerRef.current;
-    if (!h || !h.length) return;
-    setDuyguYukl(true);
-    setDuygu(null);
-    try {
-      const r = await fetch("/api/duygu", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({haberler: h}),
-      });
-      const d = await r.json();
-      setDuygu(d);
-    } catch(e) { console.error("Duygu hatası:", e); }
-    setDuyguYukl(false);
-  }, []);
-
-  // ─── ZAMANLAMA ────────────────────────────────────────────────────────────
-  const zamanlamaHesapla = useCallback(async (s) => {
-    if (!s) return;
-    setZamanlamaYukl(true);
-    setZamanlama(null);
-    try {
-      const r = await fetch("/api/zamanlama", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({sembol: s}),
-      });
-      const d = await r.json();
-      if (!d.error) setZamanlama(d);
-    } catch(e) { console.error("Zamanlama hatası:", e); }
-    setZamanlamaYukl(false);
-  }, []);
-
-  // ─── TAHMİN EKLE ──────────────────────────────────────────────────────────
-  const tahminEkle = useCallback((sembol, yon, hedefPct, ai, metin, girisFiyat, para) => {
-    setTahminler(prev => [{
-      id: Date.now(),
-      sembol: String(sembol || "").toUpperCase(),
-      yon: yon || "AL",
-      hedefPct: hedefPct || null,
-      ai: ai || null,
-      metin: String(metin || "").slice(0, 100),
-      girisFiyat: girisFiyat || null,
-      guncelFiyat: girisFiyat || null,
-      para: para || "TRY",
-      tarih: new Date().toLocaleDateString("tr-TR"),
-      sonuc: null,
-    }, ...prev.slice(0, 99)]);
-  }, []);
-
-  // ─── TAHMİN FİYAT GÜNCELLE ───────────────────────────────────────────────
-  const tahminGuncelle = useCallback(async () => {
-    const bekleyen = tahminler.filter(t => !t.sonuc);
-    if (!bekleyen.length) return;
-    setTahminGuncYukl(true);
-    const guncel = [...tahminler];
-    await Promise.allSettled(bekleyen.map(async (t) => {
-      try {
-        const r = await fetch(`/api/tahmintakip?sembol=${encodeURIComponent(t.sembol)}`);
-        const d = await r.json();
-        if (!d.fiyat) return;
-        const idx = guncel.findIndex(x => x.id === t.id);
-        if (idx === -1) return;
-        const degisim = ((d.fiyat - t.girisFiyat) / t.girisFiyat) * 100;
-        const hedefUlasti = t.hedefPct && (t.yon === "AL" ? degisim >= t.hedefPct : degisim <= -t.hedefPct);
-        guncel[idx] = {...guncel[idx], guncelFiyat: d.fiyat, sonuc: hedefUlasti ? "DOĞRU" : null};
-      } catch {}
-    }));
-    setTahminler(guncel);
-    setTahminGuncYukl(false);
-  }, [tahminler]);
-
-  const raporUret=useCallback(async()=>{
+    const raporUret=useCallback(async()=>{
     const h=haberlerRef.current;if(!h.length||raporYuklRef.current)return;
     setRaporYukl(true);setRaporVeri(null);setSagTab("rapor");setAktifEkran("rapor");
     try{const r=await fetch("/api/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({haberler:h,tip:raporTip,haftalikHaberler:raporTip==="haftalik"?haftalik:[]})});const d=await r.json();setRaporVeri(d);setRaporAI("llama");}
@@ -1290,12 +1157,11 @@ export default function BorsaRadar() {
   const fmtCD=s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
 
   const hProps={haberler,yukl:haberYukl,hata:haberHata,filtre,setFiltre,secilenId,onClick:onHaberClick,onYenile:()=>haberleriYukle(true)};
-  const aProps={analizler,analizYukl,baslik:analizBaslik,aktif:aktifAI,setAktif:setAktifAI,goster,onTahminEkle:tahminEkle};
+  const aProps={analizler,analizYukl,baslik:analizBaslik,aktif:aktifAI,setAktif:setAktifAI,goster:tahminEkle};
   const iProps={
     duygu,duyguYukl,onDuyguHesapla:duyguHesapla,
     sektor,sektorYukl,
     zamanlama,zamanlamaYukl,onZamanlamaHesapla:zamanlamaHesapla,zamanlamaSembol,setZamanlamaSembol,
-    tahminler,onTahminGuncelle:tahminGuncelle,tahminGuncYukl,
     aktifTab:istihbaratTab,setAktifTab:setIstihbaratTab,
     haberler,
   };
