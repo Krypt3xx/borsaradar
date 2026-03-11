@@ -650,28 +650,27 @@ const RaporPaneli=memo(({raporVeri,yukl,tip,setTip,aktifAI,setAktifAI,doviz,habe
 ));
 
 // ─── DİĞER PANELİ ─────────────────────────────────────────────────────────────
-
-// ─── TAHMİN EKLE BUTONU ───────────────────────────────────────────────────────
-function TahminEkleButon({aiId, analizMetni, onEkle}) {
+// ─── TAHMİN EKLE BUTONU ──────────────────────────────────────────────────────
+const TahminEkleButon = memo(function TahminEkleButon({aiId, analizMetni, onEkle}) {
   const [acik, setAcik] = useState(false);
   const [sembol, setSembol] = useState("");
   const [yon, setYon] = useState("AL");
   const [hedef, setHedef] = useState("");
   const [yukl, setYukl] = useState(false);
 
-  const ekle = async () => {
+  const ekle = useCallback(async () => {
     if (!sembol) return;
     setYukl(true);
     let girisFiyat = null, para = "TRY";
     try {
-      const r = await fetch(`/api/sim-fiyat?sembol=${encodeURIComponent(sembol)}`);
+      const r = await fetch("/api/sim-fiyat?sembol=" + encodeURIComponent(sembol));
       const d = await r.json();
       if (d && d.fiyat) { girisFiyat = d.fiyat; para = d.para || "TRY"; }
-    } catch {}
+    } catch(e) {}
     setYukl(false);
     if (onEkle) onEkle(sembol, yon, hedef ? parseFloat(hedef) : null, aiId, analizMetni ? String(analizMetni).slice(0,100) : null, girisFiyat, para);
     setSembol(""); setHedef(""); setAcik(false);
-  };
+  }, [sembol, yon, hedef, aiId, analizMetni, onEkle]);
 
   if (!acik) return (
     <button onClick={()=>setAcik(true)} style={{fontSize:10,padding:"4px 10px",background:"#1a2d1a",border:"1px solid #3a6a3a",borderRadius:5,color:"#60cc80",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
@@ -697,69 +696,60 @@ function TahminEkleButon({aiId, analizMetni, onEkle}) {
         style={{fontSize:10,padding:"4px 8px",background:"none",border:"1px solid #2a3a40",borderRadius:4,color:"#3a5060",cursor:"pointer"}}>✕</button>
     </div>
   );
-}
+});
 
 // ─── İSTİHBARAT PANELİ ───────────────────────────────────────────────────────
-const IstihbaratPaneli = memo(({
-  duygu, duyguYukl, onDuyguHesapla,
-  sektor, sektorYukl,
-  zamanlama, zamanlamaYukl, onZamanlamaHesapla, zamanlamaSembol, setZamanlamaSembol,
-  tahminler, onTahminGuncelle, tahminGuncYukl,
-  aktifTab, setAktifTab,
-  haberler,
-}) => {
-  const safeHaberler = haberler || [];
-  const safeTahminler = tahminler || [];
+const IstihbaratPaneli = memo(function IstihbaratPaneli(props) {
+  const duygu           = props.duygu       || null;
+  const duyguYukl       = props.duyguYukl   || false;
+  const onDuyguHesapla  = props.onDuyguHesapla;
+  const sektor          = props.sektor      || null;
+  const sektorYukl      = props.sektorYukl  || false;
+  const zamanlama       = props.zamanlama   || null;
+  const zamanlamaYukl   = props.zamanlamaYukl || false;
+  const onZamanlamaHesapla = props.onZamanlamaHesapla;
+  const zamanlamaSembol = props.zamanlamaSembol || "";
+  const setZamanlamaSembol = props.setZamanlamaSembol;
+  const tahminler       = props.tahminler   || [];
+  const onTahminGuncelle = props.onTahminGuncelle;
+  const tahminGuncYukl  = props.tahminGuncYukl || false;
+  const aktifTab        = props.aktifTab    || "duygu";
+  const setAktifTab     = props.setAktifTab;
+  const haberler        = props.haberler    || [];
 
   return (
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
       <div style={{display:"flex",borderBottom:"1px solid #1a2530",flexShrink:0,background:"#0b0f14",overflowX:"auto"}}>
-        {[["duygu","🧠 Duygu"],["sektor","🗺 Sektör"],["zamanlama","⏱ Zamanlama"],["tahmin","🎯 Tahmin"]].map(([k,l])=>(
-          <button key={k} className={`tab${aktifTab===k?" on":""}`} onClick={()=>setAktifTab(k)} style={{fontSize:11}}>{l}</button>
-        ))}
+        {[["duygu","🧠 Duygu"],["sektor","🗺 Sektör"],["zamanlama","⏱ Zamanlama"],["tahmin","🎯 Tahmin"]].map(function(item) {
+          return <button key={item[0]} className={"tab"+(aktifTab===item[0]?" on":"")} onClick={function(){setAktifTab(item[0]);}} style={{fontSize:11}}>{item[1]}</button>;
+        })}
       </div>
 
       {aktifTab==="duygu" && (
         <div style={{flex:1,overflowY:"auto",padding:12,WebkitOverflowScrolling:"touch"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
             <div style={{fontSize:13,fontWeight:700,color:"#4a8090"}}>🧠 Piyasa Duygu Endeksi</div>
-            <button onClick={onDuyguHesapla} disabled={duyguYukl || safeHaberler.length===0} className="btn-p" style={{padding:"6px 14px",fontSize:11}}>
+            <button onClick={onDuyguHesapla} disabled={duyguYukl || haberler.length===0} className="btn-p" style={{padding:"6px 14px",fontSize:11}}>
               {duyguYukl ? <Dots size={4}/> : "Hesapla"}
             </button>
           </div>
-          {!duygu && !duyguYukl && (
+          {(!duygu && !duyguYukl) && (
             <div style={{textAlign:"center",padding:40,color:"#2a4050",lineHeight:2,fontSize:12}}>
               <div style={{fontSize:32,opacity:.1,marginBottom:8}}>🧠</div>
-              Son haberlerin tonunu analiz eder<br/>
-              <strong style={{color:"#3a7080"}}>Korku varken al, açgözlülük varken sat</strong>
+              Son haberlerin tonunu analiz eder
             </div>
           )}
           {duyguYukl && <div style={{display:"flex",justifyContent:"center",padding:40}}><Dots color="#80a8c0"/></div>}
-          {duygu && !duyguYukl && (
+          {(duygu && !duyguYukl) && (
             <div>
-              <div style={{background:"#0d1520",border:"2px solid #2a4050",borderRadius:12,padding:20,marginBottom:14,textAlign:"center"}}>
-                <div style={{fontSize:11,color:"#4a8090",fontWeight:700,marginBottom:8}}>{duygu.haberSayisi||0} HABER</div>
+              <div style={{background:"#0d1520",border:"1px solid #2a4050",borderRadius:12,padding:20,marginBottom:14,textAlign:"center"}}>
                 <div style={{position:"relative",height:14,background:"linear-gradient(to right,#4488ff,#aaaaaa,#ff4444)",borderRadius:7,marginBottom:12}}>
-                  <div style={{position:"absolute",top:"50%",left:`${duygu.endeks||50}%`,transform:"translate(-50%,-50%)",width:18,height:18,borderRadius:"50%",background:"#fff",border:"3px solid #0f1318"}}/>
+                  <div style={{position:"absolute",top:"50%",left:String(duygu.endeks||50)+"%",transform:"translate(-50%,-50%)",width:18,height:18,borderRadius:"50%",background:"#fff",border:"3px solid #0f1318"}}/>
                 </div>
-                <div style={{fontSize:28,fontWeight:900,color:duygu.renk||"#aaa",fontFamily:"monospace",marginBottom:4}}>{duygu.endeks||0}</div>
-                <div style={{fontSize:15,fontWeight:700,color:duygu.renk||"#aaa",marginBottom:6}}>{duygu.etiket||""}</div>
-                <div style={{fontSize:11,color:"#8ab0b8",lineHeight:1.6}}>{duygu.aciklama||""}</div>
+                <div style={{fontSize:28,fontWeight:900,color:String(duygu.renk||"#aaa"),fontFamily:"monospace",marginBottom:4}}>{duygu.endeks||0}</div>
+                <div style={{fontSize:15,fontWeight:700,color:String(duygu.renk||"#aaa"),marginBottom:6}}>{String(duygu.etiket||"")}</div>
+                <div style={{fontSize:11,color:"#8ab0b8",lineHeight:1.6}}>{String(duygu.aciklama||"")}</div>
               </div>
-              {duygu.kategoriSkolar && duygu.kategoriSkolar.length > 0 && (
-                <div style={{background:"#101820",border:"1px solid #1e2d38",borderRadius:8,padding:12}}>
-                  <div style={{fontSize:11,fontWeight:700,color:"#4a8090",marginBottom:8}}>Kategori Dağılımı</div>
-                  {duygu.kategoriSkolar.slice(0,6).map(k => (
-                    <div key={k.kategori||Math.random()} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-                      <div style={{width:90,fontSize:10,color:"#4a7080",flexShrink:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{k.kategori||""}</div>
-                      <div style={{flex:1,height:5,background:"#1a2530",borderRadius:3,overflow:"hidden"}}>
-                        <div style={{width:`${Math.min(100,Math.abs(k.skor||0))}%`,height:"100%",background:(k.skor||0)>0?"#50dd90":"#ff7070",borderRadius:3}}/>
-                      </div>
-                      <div style={{fontSize:10,color:(k.skor||0)>0?"#50dd90":"#ff7070",fontFamily:"monospace",width:32,textAlign:"right"}}>{(k.skor||0)>0?"+":""}{k.skor||0}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -767,28 +757,28 @@ const IstihbaratPaneli = memo(({
 
       {aktifTab==="sektor" && (
         <div style={{flex:1,overflowY:"auto",padding:12,WebkitOverflowScrolling:"touch"}}>
-          {!sektor && !sektorYukl && (
+          {(!sektor && !sektorYukl) && (
             <div style={{textAlign:"center",padding:40,color:"#2a4050",lineHeight:2,fontSize:12}}>
               <div style={{fontSize:32,opacity:.1,marginBottom:8}}>🗺</div>
-              Bir haberi analiz et<br/>Etkilenen sektörler ve hisseler otomatik listelenir
+              Bir haberi analiz et — etkilenen sektörler listelenir
             </div>
           )}
           {sektorYukl && <div style={{display:"flex",justifyContent:"center",padding:40}}><Dots color="#80c0a0"/></div>}
-          {sektor && !sektorYukl && (
+          {(sektor && !sektorYukl) && (
             <div>
               <div style={{fontSize:11,color:"#4a7080",marginBottom:10}}>
-                {sektor.sektorSayisi||0} sektör · {(sektor.onerilenHisseler||[]).length} hisse
+                {String(sektor.sektorSayisi||0)} sektör · {String((sektor.onerilenHisseler||[]).length)} hisse
               </div>
-              {(sektor.onerilenHisseler||[]).map((h,i) => {
-                const eRenk = h.etki==="DOĞRUDAN"?"#ff9060":h.etki==="POZİTİF"?"#50dd90":h.etki==="TERS"?"#ff7070":"#ffcc44";
+              {(sektor.onerilenHisseler||[]).map(function(h,i) {
+                var eRenk = h.etki==="DOĞRUDAN"?"#ff9060":h.etki==="POZİTİF"?"#50dd90":h.etki==="TERS"?"#ff7070":"#ffcc44";
                 return (
                   <div key={i} style={{background:"#101820",border:"1px solid #1e2d38",borderRadius:7,padding:"10px 12px",marginBottom:6}}>
                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
-                      <span style={{fontSize:13,fontWeight:800,color:"#70d8a0",fontFamily:"monospace"}}>{h.sembol||""}</span>
-                      <span style={{fontSize:11,color:"#4a6070"}}>{h.isim||""}</span>
-                      <span style={{fontSize:9,fontWeight:700,color:eRenk,background:eRenk+"20",padding:"1px 6px",borderRadius:4}}>{h.etki||""}</span>
+                      <span style={{fontSize:13,fontWeight:800,color:"#70d8a0",fontFamily:"monospace"}}>{String(h.sembol||"")}</span>
+                      <span style={{fontSize:11,color:"#4a6070"}}>{String(h.isim||"")}</span>
+                      <span style={{fontSize:9,fontWeight:700,color:eRenk,background:eRenk+"20",padding:"1px 6px",borderRadius:4}}>{String(h.etki||"")}</span>
                     </div>
-                    <div style={{fontSize:11,color:"#5a8090",lineHeight:1.5}}>{h.aciklama||""}</div>
+                    <div style={{fontSize:11,color:"#5a8090",lineHeight:1.5}}>{String(h.aciklama||"")}</div>
                   </div>
                 );
               })}
@@ -800,46 +790,45 @@ const IstihbaratPaneli = memo(({
       {aktifTab==="zamanlama" && (
         <div style={{flex:1,overflowY:"auto",padding:12,WebkitOverflowScrolling:"touch"}}>
           <div style={{marginBottom:12}}>
-            <div style={{fontSize:12,fontWeight:700,color:"#4a8090",marginBottom:4}}>Fiyat Penceresi — Haber fiyatlandı mı?</div>
-            <div style={{fontSize:11,color:"#2a5060",marginBottom:8,lineHeight:1.6}}>
-              Son 4 saatlik fiyat hareketi ve hacim anomalisi analiz edilir.
-            </div>
+            <div style={{fontSize:12,fontWeight:700,color:"#4a8090",marginBottom:6}}>Fiyat Penceresi — Haber fiyatlandı mı?</div>
             <div style={{display:"flex",gap:8}}>
               <input className="inp" style={{flex:1}} placeholder="GARAN, NVDA, BTC-USD..."
-                value={zamanlamaSembol||""} onChange={e=>setZamanlamaSembol(e.target.value.toUpperCase())}
-                onKeyDown={e=>{if(e.key==="Enter"&&zamanlamaSembol)onZamanlamaHesapla(zamanlamaSembol);}}/>
-              <button className="btn-p" onClick={()=>zamanlamaSembol&&onZamanlamaHesapla(zamanlamaSembol)} disabled={!zamanlamaSembol||zamanlamaYukl} style={{padding:"8px 14px",fontSize:12,flexShrink:0}}>
+                value={zamanlamaSembol} onChange={function(e){setZamanlamaSembol(e.target.value.toUpperCase());}}
+                onKeyDown={function(e){if(e.key==="Enter"&&zamanlamaSembol)onZamanlamaHesapla(zamanlamaSembol);}}/>
+              <button className="btn-p" onClick={function(){if(zamanlamaSembol)onZamanlamaHesapla(zamanlamaSembol);}} disabled={!zamanlamaSembol||zamanlamaYukl} style={{padding:"8px 14px",fontSize:12,flexShrink:0}}>
                 {zamanlamaYukl ? <Dots size={5}/> : "Analiz"}
               </button>
             </div>
           </div>
           {zamanlamaYukl && <div style={{display:"flex",justifyContent:"center",padding:40}}><Dots color="#80b0c0"/></div>}
-          {zamanlama && !zamanlamaYukl && (
+          {(zamanlama && !zamanlamaYukl) && (
             <div>
               <div style={{background:"#0d1520",border:"1px solid #2a5060",borderRadius:10,padding:14,marginBottom:10,textAlign:"center"}}>
                 <div style={{fontSize:10,color:"#3a6070",marginBottom:6}}>
-                  {zamanlama.sembol||""} · {zamanlama.para==="USD"?"$":"₺"}{zamanlama.sonFiyat||"—"}
+                  {String(zamanlama.sembol||"")} · {zamanlama.para==="USD"?"$":"₺"}{String(zamanlama.sonFiyat||"—")}
                 </div>
-                <div style={{fontSize:16,fontWeight:800,color:zamanlama.pencereRenk||"#aaa",marginBottom:10}}>
-                  {zamanlama.pencere||"—"}
+                <div style={{fontSize:16,fontWeight:800,color:String(zamanlama.pencereRenk||"#aaa"),marginBottom:10}}>
+                  {String(zamanlama.pencere||"—")}
                 </div>
                 <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
-                  {[
-                    {l:"4s Değişim", v:`${(zamanlama.degisim4s||0)>=0?"+":""}${(zamanlama.degisim4s||0)}%`, c:(zamanlama.degisim4s||0)>=0?"#50dd90":"#ff7070"},
-                    {l:"Hacim/Ort",  v:`${zamanlama.hacimOrani||1}x`, c:(zamanlama.hacimOrani||1)>1.5?"#ff9060":"#50dd90"},
-                    {l:"Fiyatlanma", v:`%${zamanlama.fiyatlanmaPct||0}`, c:(zamanlama.fiyatlanmaPct||0)>60?"#ff7070":"#50dd90"},
-                  ].map(({l,v,c})=>(
-                    <div key={l} style={{textAlign:"center",padding:"8px 14px",background:"#00000030",borderRadius:6}}>
-                      <div style={{fontSize:9,color:"#3a6070"}}>{l}</div>
-                      <div style={{fontSize:16,fontWeight:700,color:c,fontFamily:"monospace"}}>{v}</div>
-                    </div>
-                  ))}
+                  <div style={{textAlign:"center",padding:"8px 14px",background:"#00000030",borderRadius:6}}>
+                    <div style={{fontSize:9,color:"#3a6070"}}>4s Değişim</div>
+                    <div style={{fontSize:16,fontWeight:700,color:(zamanlama.degisim4s||0)>=0?"#50dd90":"#ff7070",fontFamily:"monospace"}}>{(zamanlama.degisim4s||0)>=0?"+":""}{String(zamanlama.degisim4s||0)}%</div>
+                  </div>
+                  <div style={{textAlign:"center",padding:"8px 14px",background:"#00000030",borderRadius:6}}>
+                    <div style={{fontSize:9,color:"#3a6070"}}>Hacim/Ort</div>
+                    <div style={{fontSize:16,fontWeight:700,color:(zamanlama.hacimOrani||1)>1.5?"#ff9060":"#50dd90",fontFamily:"monospace"}}>{String(zamanlama.hacimOrani||1)}x</div>
+                  </div>
+                  <div style={{textAlign:"center",padding:"8px 14px",background:"#00000030",borderRadius:6}}>
+                    <div style={{fontSize:9,color:"#3a6070"}}>Fiyatlanma</div>
+                    <div style={{fontSize:16,fontWeight:700,color:(zamanlama.fiyatlanmaPct||0)>60?"#ff7070":"#50dd90",fontFamily:"monospace"}}>%{String(zamanlama.fiyatlanmaPct||0)}</div>
+                  </div>
                 </div>
               </div>
               <div style={{background:"#101820",border:"1px solid #1e2d38",borderRadius:7,padding:"10px 12px",fontSize:11,color:"#6a9090",lineHeight:1.7}}>
                 Fiyatlanma 70+ ise piyasa haberi zaten biliyor<br/>
-                Fiyatlanma 30- ise pencere hala açık<br/>
-                Hacim 2x+ ise büyük oyuncular hareket ediyor
+                Fiyatlanma 30- ise pencere hala acik<br/>
+                Hacim 2x+ ise buyuk oyuncular hareket ediyor
               </div>
             </div>
           )}
@@ -849,76 +838,55 @@ const IstihbaratPaneli = memo(({
       {aktifTab==="tahmin" && (
         <div style={{flex:1,overflowY:"auto",padding:12,WebkitOverflowScrolling:"touch"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-            <div>
-              <div style={{fontSize:13,fontWeight:700,color:"#4a8090"}}>🎯 Tahmin Başarı Takibi</div>
-              <div style={{fontSize:11,color:"#2a4050",marginTop:2}}>Analizden hisse ekle, başarı oranını ölç</div>
-            </div>
-            {safeTahminler.length > 0 && (
+            <div style={{fontSize:13,fontWeight:700,color:"#4a8090"}}>🎯 Tahmin Başarı Takibi</div>
+            {tahminler.length > 0 && (
               <button onClick={onTahminGuncelle} disabled={tahminGuncYukl} className="btn-p" style={{padding:"6px 14px",fontSize:11}}>
                 {tahminGuncYukl ? <Dots size={4}/> : "↻ Fiyat"}
               </button>
             )}
           </div>
-          {safeTahminler.length === 0 && (
+          {tahminler.length === 0 && (
             <div style={{textAlign:"center",padding:40,color:"#2a4050",lineHeight:2,fontSize:12}}>
               <div style={{fontSize:32,opacity:.1,marginBottom:8}}>🎯</div>
-              Analiz sonucunda 📌 Takibe Al butonunu kullan<br/>Tahminlerin dogruluk oranini burada gorursun
+              Analiz sonucunda 📌 Takibe Al butonunu kullan
             </div>
           )}
-          {safeTahminler.length > 0 && (()=>{
-            const dogru = safeTahminler.filter(t=>t&&t.sonuc==="DOĞRU").length;
-            const yanlis = safeTahminler.filter(t=>t&&t.sonuc==="YANLIŞ").length;
-            const bekleyen = safeTahminler.filter(t=>t&&!t.sonuc).length;
-            const oran = dogru+yanlis > 0 ? Math.round(dogru/(dogru+yanlis)*100) : null;
-            return (
-              <div>
-                <div style={{display:"flex",gap:6,marginBottom:12}}>
-                  {[
-                    {l:"Başarı",v:oran!=null?`%${oran}`:"—",c:oran!=null?(oran>=50?"#50dd90":"#ff7070"):"#808090"},
-                    {l:"Doğru",v:dogru,c:"#50dd90"},{l:"Yanlış",v:yanlis,c:"#ff7070"},{l:"Bekleyen",v:bekleyen,c:"#ffcc44"},
-                  ].map(({l,v,c})=>(
-                    <div key={l} style={{flex:1,background:"#0d1520",border:"1px solid #1e3040",borderRadius:7,padding:"6px 4px",textAlign:"center"}}>
-                      <div style={{fontSize:9,color:"#3a6070",marginBottom:2}}>{l}</div>
-                      <div style={{fontSize:16,fontWeight:800,color:c,fontFamily:"monospace"}}>{v}</div>
-                    </div>
-                  ))}
-                </div>
-                {safeTahminler.map((t,i)=>{
-                  if (!t) return null;
-                  const degisim = (t.girisFiyat && t.guncelFiyat && t.girisFiyat > 0)
-                    ? ((t.guncelFiyat - t.girisFiyat) / t.girisFiyat * 100) : null;
-                  const karsilandi = degisim != null && (t.yon==="AL" ? degisim>0 : degisim<0);
-                  const renk = t.sonuc==="DOĞRU"?"#50dd90":t.sonuc==="YANLIŞ"?"#ff7070":!t.sonuc?"#ffcc44":"#8090a0";
-                  return (
-                    <div key={t.id||i} style={{background:"#101820",border:`1px solid ${renk}33`,borderRadius:7,padding:"10px 12px",marginBottom:6}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                        <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                          <span style={{fontSize:13,fontWeight:800,color:"#70d8a0",fontFamily:"monospace"}}>{t.sembol||""}</span>
-                          <span style={{fontSize:11,fontWeight:700,color:t.yon==="AL"?"#50dd90":"#ff7070",background:t.yon==="AL"?"#0a2010":"#200808",padding:"1px 6px",borderRadius:4}}>{t.yon||""}</span>
-                          <span style={{fontSize:9,color:renk,background:renk+"20",padding:"1px 5px",borderRadius:4,fontWeight:700}}>{t.sonuc||"BEKLEYEN"}</span>
-                        </div>
-                        <div style={{textAlign:"right"}}>
-                          {degisim!=null && <div style={{fontSize:13,fontWeight:700,color:karsilandi?"#50dd90":"#ff7070",fontFamily:"monospace"}}>{degisim>=0?"+":""}{degisim.toFixed(2)}%</div>}
-                          <div style={{fontSize:9,color:"#2a4050"}}>{t.tarih||""}</div>
-                        </div>
+          {tahminler.length > 0 && (
+            <div>
+              {tahminler.map(function(t,i) {
+                if (!t) return null;
+                var degisim = (t.girisFiyat && t.guncelFiyat && t.girisFiyat > 0)
+                  ? ((t.guncelFiyat - t.girisFiyat) / t.girisFiyat * 100) : null;
+                var karsilandi = degisim != null && (t.yon==="AL" ? degisim>0 : degisim<0);
+                var renk = t.sonuc==="DOĞRU"?"#50dd90":t.sonuc==="YANLIŞ"?"#ff7070":"#ffcc44";
+                return (
+                  <div key={t.id||i} style={{background:"#101820",border:"1px solid "+renk+"33",borderRadius:7,padding:"10px 12px",marginBottom:6}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                        <span style={{fontSize:13,fontWeight:800,color:"#70d8a0",fontFamily:"monospace"}}>{String(t.sembol||"")}</span>
+                        <span style={{fontSize:11,color:t.yon==="AL"?"#50dd90":"#ff7070"}}>{String(t.yon||"")}</span>
+                        <span style={{fontSize:9,color:renk}}>{String(t.sonuc||"BEKLEYEN")}</span>
                       </div>
-                      <div style={{display:"flex",gap:10,fontSize:10,color:"#4a7080",flexWrap:"wrap"}}>
-                        {t.girisFiyat && <span>Giriş: {t.para==="USD"?"$":"₺"}{t.girisFiyat}</span>}
-                        {t.guncelFiyat && t.guncelFiyat!==t.girisFiyat && <span>Güncel: {t.para==="USD"?"$":"₺"}{t.guncelFiyat}</span>}
-                        {t.hedefPct && <span>Hedef: %{t.hedefPct}</span>}
+                      <div style={{textAlign:"right"}}>
+                        {degisim!=null && <div style={{fontSize:13,fontWeight:700,color:karsilandi?"#50dd90":"#ff7070",fontFamily:"monospace"}}>{degisim>=0?"+":""}{degisim.toFixed(2)}%</div>}
+                        <div style={{fontSize:9,color:"#2a4050"}}>{String(t.tarih||"")}</div>
                       </div>
-                      {t.metin && <div style={{fontSize:10,color:"#3a5060",marginTop:4,lineHeight:1.5,borderTop:"1px solid #1a2530",paddingTop:4}}>{t.metin}</div>}
                     </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
+                    <div style={{display:"flex",gap:10,fontSize:10,color:"#4a7080",marginTop:4,flexWrap:"wrap"}}>
+                      {t.girisFiyat && <span>Giriş: {t.para==="USD"?"$":"₺"}{t.girisFiyat}</span>}
+                      {t.guncelFiyat && t.guncelFiyat!==t.girisFiyat && <span>Güncel: {t.para==="USD"?"$":"₺"}{t.guncelFiyat}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 });
+
 
 const DigerPaneli=memo(({sekme,setSekme,portfoy,setPortfoy,yeniHisse,setYeniHisse,hisseEkle,manuel,setManuel,analizDevam,onManuelAnaliz,korelasyon,setKorelasyon,takvim,onTakvimAnaliz,gecmis,setGecmis,onGecmisYukle})=>(
   <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
