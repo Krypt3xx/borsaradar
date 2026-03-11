@@ -152,6 +152,9 @@ const AnalizPaneli=memo(({analizler,analizYukl,baslik,aktif,setAktif,goster})=>{
                 <span style={{fontSize:16,color:AIT[aktif].renk}}>{AIT[aktif].logo}</span>
                 <span style={{fontSize:12,fontWeight:600,color:AIT[aktif].renk}}>{AIT[aktif].isim}</span>
               </div>
+              {onTahminEkle&&<TahminEkleButon aiId={aktif} analizMetni={analizler[aktif]} onEkle={onTahminEkle}/>}
+            </div>
+            <div dangerouslySetInnerHTML={{__html:md(analizler[aktif])}} style={{fontSize:13,lineHeight:1.8,color:"#c0d8e4"}}/>
           </div>
         ):(
           <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"60%",color:"#1e3040",fontSize:12}}>Bu AI için analiz bekleniyor...</div>
