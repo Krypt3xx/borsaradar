@@ -1,4 +1,4 @@
-// BorsaRadar v14 — masaustu state YOK, CSS media query layout, sıfır re-mount
+// BorsaRadar v20 — istihbarat paneli, CSS media query layout, sıfır re-mount
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import Head from "next/head";
 
