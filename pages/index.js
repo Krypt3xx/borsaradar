@@ -1410,7 +1410,7 @@ export default function BorsaRadar() {
             {sagTab==="teknik"&&<TeknikPaneli {...tProps}/>}
             {sagTab==="rapor"&&<RaporPaneli {...rProps}/>}
             {sagTab==="bulten"&&<BultenPaneli {...bProps}/>}
-            {sagTab==="istihbarat"&&<IstihbaratPaneli {...iProps}/>
+            {sagTab==="istihbarat"&&<IstihbaratPaneli {...iProps}/>}
             {sagTab==="diger"&&<DigerPaneli {...dProps}/>}
           </div>
         </div>

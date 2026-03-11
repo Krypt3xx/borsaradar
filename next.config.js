@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-// build: v20 — React. fix
+// build: v20.1 — syntax fix
 const nextConfig = {
   reactStrictMode: false,
   async headers() {
