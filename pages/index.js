@@ -653,11 +653,11 @@ const RaporPaneli=memo(({raporVeri,yukl,tip,setTip,aktifAI,setAktifAI,doviz,habe
 
 // ─── TAHMİN EKLE BUTONU ───────────────────────────────────────────────────────
 function TahminEkleButon({aiId, analizMetni, onEkle}) {
-  const [acik, setAcik] = React.useState(false);
-  const [sembol, setSembol] = React.useState("");
-  const [yon, setYon] = React.useState("AL");
-  const [hedef, setHedef] = React.useState("");
-  const [yukl, setYukl] = React.useState(false);
+  const [acik, setAcik] = useState(false);
+  const [sembol, setSembol] = useState("");
+  const [yon, setYon] = useState("AL");
+  const [hedef, setHedef] = useState("");
+  const [yukl, setYukl] = useState(false);
 
   const ekle = async () => {
     if (!sembol) return;
