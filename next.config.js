@@ -1,5 +1,4 @@
 /** @type {import('next').NextConfig} */
-// build: v20.2 — pin removed
 const nextConfig = {
   reactStrictMode: false,
   async headers() {
