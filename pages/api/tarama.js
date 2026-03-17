@@ -1,4 +1,5 @@
-// /api/tarama.js — BIST Tarama Otomasyonu v1
+// /api/tarama.js — BIST Tarama Otomasyonu v2
+// Düzeltmeler: filtreler opsiyonel, P/K null hisseyi elemez, varsayılanlar gevşetildi
 export const config = { maxDuration: 60 };
 
 const BIST = [
@@ -11,18 +12,17 @@ const BIST = [
   "IEYHO","IHEVA","IHLAS","INDES","INFO","ISDMR","ISFIN","ISGSY","ISGYO","ISMEN",
   "JANTS","KAPLM","KAREL","KARSN","KATMR","KENT","KERVT","KLKIM","KLMSN","KNFRT",
   "KONYA","KOPOL","KORDS","KOZAA","KRONT","KRSAN","KRSTL","KRVGD","KUTPO","KUYAS",
-  "LIDER","LOGO","LUKSK","MAGEN","MAKIM","MANAS","MARTI","MAVI","MEDTR","MERIT",
-  "MERKO","METRO","MIATK","MIPAZ","MKISM","MNDRS","MOBTL","MPARK","MRSHL","MSGYO",
-  "NATEN","NETAS","NIBAS","NTHOL","NTTUR","NUGYO","NUHCM","OBASE","ODAS","ONCSM",
-  "ORGE","ORMA","OTKAR","OYLUM","PAGYO","PAMEL","PAPIL","PARSN","PETUN","PINSU",
-  "PKENT","POLHO","POLTK","PRKAB","PRKME","PRZMA","QNBFB","QNBFL","RALYH","RAYSG",
-  "RBURG","RUBNS","RYGYO","RYSAS","SAFKR","SANEL","SANFM","SANKO","SARKY","SASA",
-  "SAYAS","SEKUR","SELEC","SELGD","SELVA","SILVR","SKBNK","SKTAS","SMART","SNGYO",
-  "SOKM","SONME","SUWEN","TATGD","TATEN","TBORG","TDGYO","TEKTU","TGSAS","TKFEN",
-  "TKNSA","TMPOL","TMSN","TRPCS","TSGYO","TSKB","TTRAK","TUKAS","TUREX","TURGG",
-  "ULUUN","ULVAC","VAKBN","VAKKO","VANGD","VERTU","VESBE","VESTL","YAPRK","YATAS",
-  "YAYLA","YBTAS","YUNSA","YYAPI","ZEDUR","ZOREN","ZRGYO","DARDL","DENGE","DITAS",
-  "DPSAS","DURDO","DYOBY","DZGYO","EGPRO","EKSUN","EMKEL","EMNIS","ENPLU","ESCAR",
+  "LIDER","LUKSK","MAGEN","MAKIM","MANAS","MARTI","MAVI","MEDTR","MERIT","MERKO",
+  "METRO","MIATK","MIPAZ","MKISM","MNDRS","MOBTL","MPARK","MRSHL","MSGYO","NATEN",
+  "NETAS","NIBAS","NTHOL","NTTUR","NUGYO","NUHCM","OBASE","ODAS","ONCSM","ORGE",
+  "ORMA","OTKAR","OYLUM","PAGYO","PAPIL","PARSN","PETUN","PINSU","PKENT","POLHO",
+  "POLTK","PRKAB","PRKME","PRZMA","QNBFB","QNBFL","RALYH","RAYSG","RBURG","RUBNS",
+  "RYGYO","RYSAS","SAFKR","SANEL","SANFM","SANKO","SARKY","SASA","SAYAS","SEKUR",
+  "SELEC","SELGD","SELVA","SILVR","SKBNK","SKTAS","SMART","SNGYO","SOKM","SONME",
+  "SUWEN","TATGD","TATEN","TBORG","TDGYO","TEKTU","TGSAS","TKFEN","TKNSA","TMPOL",
+  "TMSN","TRPCS","TSGYO","TSKB","TTRAK","TUKAS","TUREX","TURGG","ULUUN","VAKBN",
+  "VAKKO","VANGD","VERTU","VESBE","VESTL","YAPRK","YATAS","YAYLA","YBTAS","YUNSA",
+  "YYAPI","ZEDUR","ZOREN","ZRGYO","DARDL","DENGE","DITAS","DPSAS","DURDO","DYOBY",
 ];
 
 const HDR = {
@@ -31,80 +31,105 @@ const HDR = {
   "Referer": "https://finance.yahoo.com",
 };
 
-function rsiHesapla(prices, period) {
-  var p = period || 14;
-  if (prices.length < p + 1) return null;
+function rsiHesapla(prices) {
+  var period = 14;
+  if (!prices || prices.length < period + 1) return null;
   var gains = 0, losses = 0;
-  for (var i = 1; i <= p; i++) {
+  for (var i = 1; i <= period; i++) {
     var diff = prices[i] - prices[i - 1];
     if (diff > 0) gains += diff; else losses -= diff;
   }
-  var avgGain = gains / p, avgLoss = losses / p;
-  for (var j = p + 1; j < prices.length; j++) {
+  var avgGain = gains / period, avgLoss = losses / period;
+  for (var j = period + 1; j < prices.length; j++) {
     var d2 = prices[j] - prices[j - 1];
-    avgGain = (avgGain * (p - 1) + (d2 > 0 ? d2 : 0)) / p;
-    avgLoss = (avgLoss * (p - 1) + (d2 < 0 ? -d2 : 0)) / p;
+    avgGain = (avgGain * (period - 1) + (d2 > 0 ? d2 : 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + (d2 < 0 ? -d2 : 0)) / period;
   }
   if (avgLoss === 0) return 100;
-  return Math.round(100 - (100 / (1 + avgGain / avgLoss)));
+  var rsi = 100 - (100 / (1 + avgGain / avgLoss));
+  return Math.round(rsi * 10) / 10;
 }
 
 async function hisseVeriCek(sembol) {
   var yahooSembol = sembol + ".IS";
   var bitis = Math.floor(Date.now() / 1000);
-  var baslangic = bitis - 365 * 24 * 3600;
-  var url = "https://query2.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(yahooSembol) + "?interval=1d&period1=" + baslangic + "&period2=" + bitis + "&includePrePost=false";
+  var baslangic = bitis - 370 * 24 * 3600;
+  var url = "https://query2.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(yahooSembol)
+    + "?interval=1d&period1=" + baslangic + "&period2=" + bitis + "&includePrePost=false";
   try {
-    var r = await fetch(url, { headers: HDR, signal: AbortSignal.timeout(10000) });
+    var r = await fetch(url, { headers: HDR, signal: AbortSignal.timeout(12000) });
     if (!r.ok) return null;
     var data = await r.json();
     var chart = data.chart && data.chart.result && data.chart.result[0];
     if (!chart) return null;
     var q = (chart.indicators && chart.indicators.quote && chart.indicators.quote[0]) || {};
-    var kapanislar = (q.close || []).filter(function(v) { return v != null && v > 0; });
-    var hacimler = (q.volume || []).filter(function(v) { return v != null; });
-    if (kapanislar.length < 30) return null;
+    var rawClose = q.close || [];
+    var rawVolume = q.volume || [];
+
+    // Null'ları filtrele ama pozisyon bilgisini koru
+    var kapanislar = rawClose.filter(function(v) { return v != null && v > 0; });
+    var hacimler = rawVolume.map(function(v) { return v != null ? v : 0; });
+
+    if (kapanislar.length < 20) return null;
+
     var sonFiyat = kapanislar[kapanislar.length - 1];
     var oncekiFiyat = kapanislar[kapanislar.length - 2] || sonFiyat;
     var gunlukDegisim = oncekiFiyat > 0 ? ((sonFiyat - oncekiFiyat) / oncekiFiyat * 100) : 0;
+
+    // RSI — son 30 kapanış yeterli
     var rsi = rsiHesapla(kapanislar.slice(-30));
-    var hacimSlice = hacimler.slice(-21, -1);
-    var hacimOrt20 = hacimSlice.length > 0 ? hacimSlice.reduce(function(a,b){return a+b;},0)/hacimSlice.length : 0;
+
+    // Hacim spike — son gün / önceki 20 günün ortalaması
+    var gecenHacimler = hacimler.slice(-21, -1).filter(function(v) { return v > 0; });
+    var hacimOrt20 = gecenHacimler.length > 0
+      ? gecenHacimler.reduce(function(a, b) { return a + b; }, 0) / gecenHacimler.length
+      : 0;
     var sonHacim = hacimler[hacimler.length - 1] || 0;
-    var hacimSpike = hacimOrt20 > 0 ? sonHacim / hacimOrt20 : 1;
+    var hacimSpike = hacimOrt20 > 0 ? sonHacim / hacimOrt20 : 0;
+
+    // 52 Hafta dip/zirve (son 252 işlem günü — yaklaşık 1 yıl)
     var yillikFiyatlar = kapanislar.slice(-252);
     var max52h = Math.max.apply(null, yillikFiyatlar);
     var min52h = Math.min.apply(null, yillikFiyatlar);
-    var uzaklikZirve = max52h > 0 ? ((sonFiyat - max52h) / max52h * 100) : 0;
+    // Dipten ne kadar % yukarda? (+0 = tam dipte, +50 = dipten %50 yukarda)
     var uzaklikDip = min52h > 0 ? ((sonFiyat - min52h) / min52h * 100) : 0;
-    // P/K — quoteSummary
+    // Zirveden ne kadar % aşağıda? (-0 = tam zirvede, -50 = zirveden %50 aşağıda)
+    var uzaklikZirve = max52h > 0 ? ((sonFiyat - max52h) / max52h * 100) : 0;
+
+    // P/K — ayrı istek, hata olursa null döner (hisseyi ELEMEYİZ)
     var pk = null;
     try {
-      var mr = await fetch("https://query2.finance.yahoo.com/v10/finance/quoteSummary/" + encodeURIComponent(yahooSembol) + "?modules=summaryDetail", { headers: HDR, signal: AbortSignal.timeout(5000) });
+      var metaUrl = "https://query2.finance.yahoo.com/v10/finance/quoteSummary/"
+        + encodeURIComponent(yahooSembol) + "?modules=summaryDetail";
+      var mr = await fetch(metaUrl, { headers: HDR, signal: AbortSignal.timeout(6000) });
       if (mr.ok) {
         var md = await mr.json();
-        var summary = md.quoteSummary && md.quoteSummary.result && md.quoteSummary.result[0] && md.quoteSummary.result[0].summaryDetail;
-        if (summary && summary.trailingPE && summary.trailingPE.raw && summary.trailingPE.raw > 0) {
-          pk = parseFloat(summary.trailingPE.raw.toFixed(2));
+        var sumDetail = md.quoteSummary
+          && md.quoteSummary.result
+          && md.quoteSummary.result[0]
+          && md.quoteSummary.result[0].summaryDetail;
+        var rawPK = sumDetail && sumDetail.trailingPE && sumDetail.trailingPE.raw;
+        if (rawPK && rawPK > 0 && rawPK < 1000) {
+          pk = Math.round(rawPK * 10) / 10;
         }
       }
-    } catch(e2) {}
+    } catch (e2) { /* P/K alınamazsa null kalır, hisse elenmez */ }
+
     return {
       sembol: sembol,
-      yahooSembol: yahooSembol,
-      fiyat: parseFloat(sonFiyat.toFixed(2)),
-      gunlukDegisim: parseFloat(gunlukDegisim.toFixed(2)),
+      fiyat: Math.round(sonFiyat * 100) / 100,
+      gunlukDegisim: Math.round(gunlukDegisim * 100) / 100,
       rsi: rsi,
-      hacimSpike: parseFloat(hacimSpike.toFixed(2)),
+      hacimSpike: Math.round(hacimSpike * 100) / 100,
       sonHacim: sonHacim,
       hacimOrt20: Math.round(hacimOrt20),
-      max52h: parseFloat(max52h.toFixed(2)),
-      min52h: parseFloat(min52h.toFixed(2)),
-      uzaklikZirve: parseFloat(uzaklikZirve.toFixed(2)),
-      uzaklikDip: parseFloat(uzaklikDip.toFixed(2)),
+      max52h: Math.round(max52h * 100) / 100,
+      min52h: Math.round(min52h * 100) / 100,
+      uzaklikZirve: Math.round(uzaklikZirve * 100) / 100,
+      uzaklikDip: Math.round(uzaklikDip * 100) / 100,
       pk: pk,
     };
-  } catch(e) {
+  } catch (e) {
     return null;
   }
 }
@@ -129,41 +154,66 @@ async function batchIsle(liste, batchSize) {
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=300");
+
   var body = {};
   if (req.method === "POST") {
-    try { body = await req.json(); } catch(e) {}
+    try { body = await req.json(); } catch (e) {}
   } else {
     body = req.query;
   }
-  var liste = body.liste || "bist100";
-  var rsiMod = body.rsiMod || "asiri_satim";
-  var hacimMin = parseFloat(body.hacimMin) || 1.5;
-  var dip52hMax = body.dip52hMax !== undefined ? parseFloat(body.dip52hMax) : 20;
-  var pkMax = body.pkMax !== undefined ? parseFloat(body.pkMax) : 25;
-  var sirala = body.sirala || "rsi";
-  var azalan = body.azalan === true || body.azalan === "true";
-  var limit = parseInt(body.limit) || 50;
 
-  var secilenListe = liste === "bist50" ? BIST.slice(0,50)
+  // Varsayılanlar — tek başına anlamlı sonuç verecek kadar geniş
+  var liste      = body.liste      || "bist100";
+  var rsiMod     = body.rsiMod     || "hepsi";      // default: RSI filtresi kapalı
+  var rsiMax     = body.rsiMax     !== undefined ? parseFloat(body.rsiMax)     : null; // null = filtre yok
+  var rsiMin     = body.rsiMin     !== undefined ? parseFloat(body.rsiMin)     : null;
+  var hacimMin   = body.hacimMin   !== undefined ? parseFloat(body.hacimMin)   : null; // null = filtre yok
+  var dip52hMax  = body.dip52hMax  !== undefined ? parseFloat(body.dip52hMax)  : null; // null = filtre yok
+  var pkMax      = body.pkMax      !== undefined ? parseFloat(body.pkMax)      : null; // null = filtre yok
+  var sirala     = body.sirala     || "rsi";
+  var azalan     = body.azalan === true || body.azalan === "true";
+  var limit      = parseInt(body.limit) || 60;
+
+  // rsiMod kısayolları
+  if (rsiMod === "asiri_satim") { rsiMax = 35; }
+  else if (rsiMod === "asiri_alim") { rsiMin = 65; }
+
+  var secilenListe = liste === "bist50" ? BIST.slice(0, 50)
     : liste === "tumBist" ? BIST
-    : BIST.slice(0,100); // bist100 default
+    : BIST.slice(0, 100);
 
   try {
     var tumVeri = await batchIsle(secilenListe, 8);
 
     var sonuclar = tumVeri.filter(function(h) {
-      if (rsiMod === "asiri_satim" && h.rsi !== null && h.rsi > 35) return false;
-      if (rsiMod === "asiri_alim" && h.rsi !== null && h.rsi < 65) return false;
-      if (hacimMin && h.hacimSpike < hacimMin) return false;
+      // RSI — sadece aktifse uygula
+      if (rsiMax !== null && h.rsi !== null && h.rsi > rsiMax) return false;
+      if (rsiMin !== null && h.rsi !== null && h.rsi < rsiMin) return false;
+
+      // Hacim spike — sadece aktifse uygula
+      if (hacimMin !== null && h.hacimSpike < hacimMin) return false;
+
+      // 52H dip — sadece aktifse uygula
       if (dip52hMax !== null && h.uzaklikDip > dip52hMax) return false;
+
+      // P/K — SADECE değer varsa ve limit aşılıyorsa ele; null ise geçir
       if (pkMax !== null && h.pk !== null && h.pk > pkMax) return false;
+
       return true;
     });
 
+    // Sıralama
+    var siralaKey = sirala === "hacimSpike" ? "hacimSpike"
+      : sirala === "uzaklikDip" ? "uzaklikDip"
+      : sirala === "pk" ? "pk"
+      : sirala === "gunlukDegisim" ? "gunlukDegisim"
+      : "rsi";
+
     sonuclar.sort(function(a, b) {
-      var av = a[sirala], bv = b[sirala];
-      if (av === null) av = azalan ? -Infinity : Infinity;
-      if (bv === null) bv = azalan ? -Infinity : Infinity;
+      var av = a[siralaKey], bv = b[siralaKey];
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;   // null'lar sona
+      if (bv === null) return -1;
       return azalan ? bv - av : av - bv;
     });
 
@@ -174,10 +224,16 @@ export default async function handler(req, res) {
       tarandiSayi: secilenListe.length,
       veriAlinanSayi: tumVeri.length,
       filtrelenenSayi: sonuclar.length,
+      aktifFiltreler: {
+        rsi: rsiMax !== null ? ("≤" + rsiMax) : rsiMin !== null ? ("≥" + rsiMin) : "kapalı",
+        hacim: hacimMin !== null ? ("≥" + hacimMin + "x") : "kapalı",
+        dip52h: dip52hMax !== null ? ("≤%" + dip52hMax + " dipten") : "kapalı",
+        pk: pkMax !== null ? ("≤" + pkMax) : "kapalı",
+      },
       zaman: new Date().toISOString(),
       sonuclar: sonuclar,
     });
-  } catch(e) {
+  } catch (e) {
     res.status(500).json({ ok: false, hata: e.message });
   }
 }
