@@ -1183,6 +1183,7 @@ export default function BorsaRadar() {
             <span style={{fontSize:10,color:"#4a8a60",fontWeight:500}}>Canlı</span>
             {sonGun&&<span style={{fontSize:10,color:"#2a4a40"}}>· {sonGun}</span>}
             <a href="/simulasyon" style={{fontSize:10,fontWeight:600,color:"#8a5af0",background:"#1a0e28",border:"1px solid #3a1e60",padding:"3px 10px",borderRadius:5,textDecoration:"none"}}>🎮 Sim</a>
+            <a href="/tarama" style={{fontSize:10,fontWeight:600,color:"#5090b0",background:"#0a1828",border:"1px solid #2a5070",padding:"3px 10px",borderRadius:5,textDecoration:"none"}}>🔍 Tara</a>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:7}}>
             <div className="mob-quick">

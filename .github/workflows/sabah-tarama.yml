@@ -1,0 +1,37 @@
+# BorsaRadar — Sabah Tarama Otomasyonu
+# Her gün 06:00 UTC = 09:00 Türkiye saatiyle çalışır
+
+name: BIST Sabah Tarama
+
+on:
+  schedule:
+    # Hafta içi sabah 06:00 UTC (09:00 TR) — Pazartesi-Cuma
+    - cron: "0 6 * * 1-5"
+  workflow_dispatch:  # Manuel tetikleme için
+
+jobs:
+  tarama:
+    runs-on: ubuntu-latest
+    steps:
+      - name: BIST-100 Tarama Tetikle
+        run: |
+          echo "🔍 BIST sabah taraması başlıyor..."
+          RESPONSE=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -d '{"liste":"bist100","rsiMod":"asiri_satim","hacimMin":1.5,"dip52hMax":20,"pkMax":25,"sirala":"rsi","limit":50}' \
+            "${{ secrets.VERCEL_APP_URL }}/api/tarama")
+          
+          echo "Yanıt: $RESPONSE" | head -c 500
+          
+          # Sonuç sayısını logla
+          SAYI=$(echo $RESPONSE | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('filtrelenenSayi',0))" 2>/dev/null || echo "?")
+          echo ""
+          echo "✅ Bulunan fırsat sayısı: $SAYI"
+
+      - name: Cache Sıfırla (Vercel ISR)
+        if: success()
+        run: |
+          echo "🔄 Vercel cache yenileniyor..."
+          curl -s "${{ secrets.VERCEL_APP_URL }}/api/tarama?liste=bist100" > /dev/null
+          echo "✅ Tamamlandı"
