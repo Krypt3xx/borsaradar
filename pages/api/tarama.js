@@ -153,7 +153,8 @@ async function batchIsle(liste, batchSize) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Cache-Control", "s-maxage=1800, stale-while-revalidate=300");
+  // Cache yok — her tarama taze veri çeksin
+  res.setHeader("Cache-Control", "no-store");
 
   var body = {};
   if (req.method === "POST") {

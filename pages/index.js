@@ -27,7 +27,8 @@ const CSS=`
 @keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 @keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{overflow:hidden;height:100%}
+html,body{overflow:hidden!important;height:100%!important}
+#__next{height:100%}
 ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:#0f1318}::-webkit-scrollbar-thumb{background:#2a3a4a;border-radius:4px}
 textarea:focus,input:focus{outline:none}
 .tab{background:none;border:none;font-family:'Inter',sans-serif;cursor:pointer;font-size:12px;font-weight:500;padding:10px 13px;color:#4a6a7a;border-bottom:2px solid transparent;transition:all .15s;white-space:nowrap}

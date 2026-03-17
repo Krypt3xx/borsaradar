@@ -5,10 +5,6 @@
 }
 
 html, body {
-  height: 100%;
-  overflow: hidden;
-}
-
-#__next {
-  height: 100%;
+  /* overflow:hidden sadece index.js inline style ile uygulanır */
+  /* tarama/simulasyon sayfaları scroll edilebilsin diye burada yok */
 }
