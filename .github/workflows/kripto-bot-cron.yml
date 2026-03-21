@@ -1,0 +1,27 @@
+name: Kripto Bot — Saatlik Karar
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # Her saat başı
+  workflow_dispatch:
+
+jobs:
+  bot-karar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Bot Karar Döngüsü
+        run: |
+          echo "🤖 Kripto bot çalışıyor..."
+          curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -H "x-bot-secret: ${{ secrets.BOT_SECRET }}" \
+            -d '{}' \
+            "${{ secrets.VERCEL_APP_URL }}/api/kripto-bot" \
+            | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print('Kararlar:', d.get('kararSayisi',0))
+print('İşlemler:', d.get('islemSayisi',0))
+print('Portföy:', d.get('portfolyoDeger','?'))
+print('K/Z:', d.get('toplamKZ','?'))
+" 2>/dev/null || echo "Yanıt parse edilemedi"

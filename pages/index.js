@@ -1185,6 +1185,7 @@ export default function BorsaRadar() {
             {sonGun&&<span style={{fontSize:10,color:"#2a4a40"}}>· {sonGun}</span>}
             <a href="/simulasyon" style={{fontSize:10,fontWeight:600,color:"#8a5af0",background:"#1a0e28",border:"1px solid #3a1e60",padding:"3px 10px",borderRadius:5,textDecoration:"none"}}>🎮 Sim</a>
             <a href="/tarama" style={{fontSize:10,fontWeight:600,color:"#5090b0",background:"#0a1828",border:"1px solid #2a5070",padding:"3px 10px",borderRadius:5,textDecoration:"none"}}>🔍 Tara</a>
+            <a href="/kripto-bot" style={{fontSize:10,fontWeight:600,color:"#9a80f0",background:"#100a28",border:"1px solid #3a2a70",padding:"3px 10px",borderRadius:5,textDecoration:"none"}}>🤖 Bot</a>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:7}}>
             <div className="mob-quick">
