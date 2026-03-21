@@ -1,376 +1,367 @@
-// /api/kripto-bot.js — Kripto Bot Karar Motoru
-// Teknik + Sentiment + Momentum + Hacim + ICT sinyalleri
-// POST /api/kripto-bot → karar üretir, durumu günceller
-// GET  /api/kripto-bot → mevcut durumu döner
-
+// /api/kripto-bot.js — Kripto Bot v2
+// Teknik veriyi direkt Binance'ten çeker (iç API çağrısı yok)
 export const config = { maxDuration: 60 };
 
-// ─── SABITLER ────────────────────────────────────────────────────────────────
-var BASLANGIC_BAKIYE = 1000;   // USDT
-var STOP_LOSS_PCT    = 0.08;   // %8
-var TAKE_PROFIT_PCT  = 0.15;   // %15
-var MAX_POZISYON_PCT = 0.30;   // bakiyenin max %30'u tek işlemde
-var MIN_SINYAL_SKOR  = 55;     // 0-100, bu skorun üzerinde işlem aç
-var PARITELER = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT"];
+var BASLANGIC   = 1000;
+var STOP_PCT    = 0.08;
+var TP_PCT      = 0.15;
+var MAX_POZ_PCT = 0.30;
+var MIN_SKOR    = 52;
+var PARITELER   = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT"];
 
-// ─── IN-MEMORY DEPO (Vercel stateless — her cold start sıfırlar)
-// Kalıcı depo için: Vercel KV veya external DB kullanın
-// Geçici çözüm: global variable (warm instance'lar arası paylaşılır)
-var BOT_DURUM = global.__botDurum || null;
-
-function botDurumBas() {
+// ─── STATE ────────────────────────────────────────────────────────────────────
+function yeniBakliye() {
   return {
-    baslangicBakiye: BASLANGIC_BAKIYE,
-    nakit: BASLANGIC_BAKIYE,
-    pozisyonlar: {},   // { BTCUSDT: { adet, girisUSDT, girisFiyat, acilisZamani, stopLoss, takeProfit } }
-    islemler: [],      // tüm işlem geçmişi
-    kararlar: [],      // bot karar log'u
-    baslamaTarihi: new Date().toISOString(),
-    sonGuncelleme: new Date().toISOString(),
+    baslangic: BASLANGIC,
+    nakit: BASLANGIC,
+    pozisyonlar: {},
+    islemler: [],
+    kararlar: [],
+    basTarihi: new Date().toISOString(),
+    guncelleme: new Date().toISOString(),
   };
 }
-
 function getDurum() {
-  if (!global.__botDurum) {
-    global.__botDurum = botDurumBas();
-  }
-  return global.__botDurum;
+  if (!global.__kr) global.__kr = yeniBakliye();
+  return global.__kr;
 }
 
-// ─── TEKNİK PUANLAMA ─────────────────────────────────────────────────────────
-function teknikPuanla(t) {
-  var puan = 50; // nötr başlangıç
-  var sinyaller = [];
+// ─── BİNANCE VERİ ÇEK ────────────────────────────────────────────────────────
+async function ohlcv(sembol, interval, limit) {
+  var url = "https://api.binance.com/api/v3/klines?symbol=" + sembol
+    + "&interval=" + interval + "&limit=" + limit;
+  var r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+  if (!r.ok) throw new Error("Binance " + r.status);
+  var d = await r.json();
+  return d.map(function(k) {
+    return { t:+k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5] };
+  });
+}
+
+// ─── GÖSTERGELER ─────────────────────────────────────────────────────────────
+function rsi(cl, p) {
+  p = p || 14;
+  if (cl.length < p+1) return 50;
+  var g=0, l=0;
+  for (var i=1; i<=p; i++) { var d=cl[i]-cl[i-1]; d>0?g+=d:l-=d; }
+  var ag=g/p, al=l/p;
+  for (var j=p+1; j<cl.length; j++) {
+    var d2=cl[j]-cl[j-1];
+    ag=(ag*(p-1)+(d2>0?d2:0))/p;
+    al=(al*(p-1)+(d2<0?-d2:0))/p;
+  }
+  return al===0?100:Math.round((100-100/(1+ag/al))*10)/10;
+}
+
+function ema(cl, p) {
+  if (cl.length < p) return cl[cl.length-1];
+  var k=2/(p+1), e=cl.slice(0,p).reduce(function(a,b){return a+b;},0)/p;
+  for (var i=p; i<cl.length; i++) e=cl[i]*k+e*(1-k);
+  return Math.round(e*100)/100;
+}
+
+function macdHist(cl) {
+  if (cl.length < 26) return 0;
+  var e12=ema(cl,12), e26=ema(cl,26);
+  var line=e12-e26;
+  var sig=ema(cl.slice(-9).map(function(_,i){
+    var s=cl.slice(0,cl.length-8+i);
+    return ema(s,12)-ema(s,26);
+  }), 9);
+  return Math.round((line-sig)*100)/100;
+}
+
+function bbPctB(cl, p) {
+  p = p||20;
+  if (cl.length < p) return 0.5;
+  var sl=cl.slice(-p);
+  var mean=sl.reduce(function(a,b){return a+b;},0)/p;
+  var std=Math.sqrt(sl.reduce(function(a,b){return a+Math.pow(b-mean,2);},0)/p);
+  if (std===0) return 0.5;
+  var son=cl[cl.length-1];
+  return Math.round(((son-(mean-2*std))/(4*std))*100)/100;
+}
+
+function hacimSpike(bars) {
+  if (bars.length < 21) return 1;
+  var ort=bars.slice(-21,-1).reduce(function(a,b){return a+b.v;},0)/20;
+  return ort>0?Math.round((bars[bars.length-1].v/ort)*100)/100:1;
+}
+
+function mom5(cl) {
+  if (cl.length < 6) return 0;
+  var son=cl[cl.length-1], once=cl[cl.length-6];
+  return Math.round(((son-once)/once)*10000)/100;
+}
+
+// ─── TEKNİK PUAN ─────────────────────────────────────────────────────────────
+function teknikPuanla(bars1h, bars4h) {
+  var cl1 = bars1h.map(function(b){return b.c;});
+  var cl4 = bars4h.map(function(b){return b.c;});
+  var son  = cl1[cl1.length-1];
+
+  var r1   = rsi(cl1);
+  var r4   = rsi(cl4);
+  var mh   = macdHist(cl1);
+  var bb   = bbPctB(cl1);
+  var e20  = ema(cl1,20);
+  var e50  = ema(cl1,50);
+  var e200 = ema(cl1.length>=200?cl1:cl1, Math.min(200,cl1.length));
+  var hs   = hacimSpike(bars1h);
+  var m5   = mom5(cl1);
+  var deg24 = cl1.length>=25 ? Math.round(((son-cl1[cl1.length-25])/cl1[cl1.length-25])*10000)/100 : 0;
+
+  var puan = 50;
+  var aciklamalar = [];
 
   // RSI 1H
-  if (t.rsi1h !== null) {
-    if (t.rsi1h < 25)      { puan += 20; sinyaller.push({tip:"AL",guc:20,aciklama:"RSI 1H aşırı satım ("+t.rsi1h+")"}); }
-    else if (t.rsi1h < 35) { puan += 12; sinyaller.push({tip:"AL",guc:12,aciklama:"RSI 1H satım bölgesi ("+t.rsi1h+")"}); }
-    else if (t.rsi1h > 75) { puan -= 20; sinyaller.push({tip:"SAT",guc:20,aciklama:"RSI 1H aşırı alım ("+t.rsi1h+")"}); }
-    else if (t.rsi1h > 65) { puan -= 12; sinyaller.push({tip:"SAT",guc:12,aciklama:"RSI 1H alım bölgesi ("+t.rsi1h+")"}); }
-  }
+  if (r1 <= 25)      { puan+=20; aciklamalar.push("RSI aşırı sat ("+r1+")"); }
+  else if (r1 <= 35) { puan+=12; aciklamalar.push("RSI satım bölgesi ("+r1+")"); }
+  else if (r1 >= 75) { puan-=20; aciklamalar.push("RSI aşırı alım ("+r1+")"); }
+  else if (r1 >= 65) { puan-=12; aciklamalar.push("RSI alım bölgesi ("+r1+")"); }
 
-  // RSI 4H (trend konfirm)
-  if (t.rsi4h !== null) {
-    if (t.rsi4h < 40)      { puan += 8;  sinyaller.push({tip:"AL",guc:8,aciklama:"RSI 4H düşük ("+t.rsi4h+")"}); }
-    else if (t.rsi4h > 60) { puan -= 8;  sinyaller.push({tip:"SAT",guc:8,aciklama:"RSI 4H yüksek ("+t.rsi4h+")"}); }
-  }
+  // RSI 4H
+  if (r4 <= 40)      { puan+=8;  aciklamalar.push("RSI4H düşük ("+r4+")"); }
+  else if (r4 >= 60) { puan-=8;  aciklamalar.push("RSI4H yüksek ("+r4+")"); }
 
-  // MACD 1H
-  if (t.macd1h) {
-    if (t.macd1h.histogram > 0 && t.macd1h.macd > t.macd1h.signal) {
-      puan += 10; sinyaller.push({tip:"AL",guc:10,aciklama:"MACD 1H bullish histogram"});
-    } else if (t.macd1h.histogram < 0 && t.macd1h.macd < t.macd1h.signal) {
-      puan -= 10; sinyaller.push({tip:"SAT",guc:10,aciklama:"MACD 1H bearish histogram"});
-    }
-  }
+  // MACD
+  if (mh > 0)  { puan+=10; aciklamalar.push("MACD bullish"); }
+  else if (mh < 0) { puan-=10; aciklamalar.push("MACD bearish"); }
 
-  // Bollinger Bands
-  if (t.bb1h) {
-    if (t.bb1h.pctB < 0.1)       { puan += 15; sinyaller.push({tip:"AL",guc:15,aciklama:"BB alt banda değdi (%B="+t.bb1h.pctB+")"}); }
-    else if (t.bb1h.pctB < 0.25) { puan += 7;  sinyaller.push({tip:"AL",guc:7,aciklama:"BB alt bant yakını"}); }
-    else if (t.bb1h.pctB > 0.9)  { puan -= 15; sinyaller.push({tip:"SAT",guc:15,aciklama:"BB üst banda değdi (%B="+t.bb1h.pctB+")"}); }
-    else if (t.bb1h.pctB > 0.75) { puan -= 7;  sinyaller.push({tip:"SAT",guc:7,aciklama:"BB üst bant yakını"}); }
-  }
+  // Bollinger
+  if (bb < 0.1)       { puan+=15; aciklamalar.push("BB alt banda değdi"); }
+  else if (bb < 0.25) { puan+=7;  aciklamalar.push("BB alt bant yakını"); }
+  else if (bb > 0.9)  { puan-=15; aciklamalar.push("BB üst banda değdi"); }
+  else if (bb > 0.75) { puan-=7;  aciklamalar.push("BB üst bant yakını"); }
 
-  // EMA trendi
-  if (t.ema20 && t.ema50 && t.fiyat) {
-    if (t.fiyat > t.ema20 && t.ema20 > t.ema50) {
-      puan += 8; sinyaller.push({tip:"AL",guc:8,aciklama:"EMA20 > EMA50 üst trend"});
-    } else if (t.fiyat < t.ema20 && t.ema20 < t.ema50) {
-      puan -= 8; sinyaller.push({tip:"SAT",guc:8,aciklama:"EMA20 < EMA50 alt trend"});
-    }
-  }
-
-  // EMA200 (uzun vadeli trend)
-  if (t.ema200 && t.fiyat) {
-    if (t.fiyat > t.ema200) { puan += 5; sinyaller.push({tip:"AL",guc:5,aciklama:"Fiyat EMA200 üstünde"}); }
-    else                    { puan -= 5; sinyaller.push({tip:"SAT",guc:5,aciklama:"Fiyat EMA200 altında"}); }
-  }
+  // EMA trend
+  if (son > e20 && e20 > e50) { puan+=8;  aciklamalar.push("EMA üst trend"); }
+  else if (son < e20 && e20 < e50) { puan-=8; aciklamalar.push("EMA alt trend"); }
+  if (son > e200) { puan+=5; aciklamalar.push("EMA200 üstünde"); }
+  else            { puan-=5; aciklamalar.push("EMA200 altında"); }
 
   // Hacim
-  if (t.hacim) {
-    if (t.hacim.spike >= 2 && t.deg24h > 0)  { puan += 10; sinyaller.push({tip:"AL",guc:10,aciklama:"Hacim spike "+t.hacim.spike+"× + pozitif fiyat"}); }
-    if (t.hacim.spike >= 2 && t.deg24h < 0)  { puan -= 10; sinyaller.push({tip:"SAT",guc:10,aciklama:"Hacim spike "+t.hacim.spike+"× + negatif fiyat"}); }
-    if (t.hacim.artis && t.deg24h > 0)       { puan += 5;  sinyaller.push({tip:"AL",guc:5,aciklama:"Hacim trendde artıyor"}); }
-  }
+  if (hs >= 2 && deg24 > 0) { puan+=10; aciklamalar.push("Hacim spike "+hs+"× + pozitif"); }
+  if (hs >= 2 && deg24 < 0) { puan-=10; aciklamalar.push("Hacim spike "+hs+"× + negatif"); }
 
   // Momentum
-  if (t.mom) {
-    if (t.mom.mom5 > 3)       { puan += 8;  sinyaller.push({tip:"AL",guc:8,aciklama:"5 bar momentum güçlü (+"+t.mom.mom5+"%)"}); }
-    else if (t.mom.mom5 < -3) { puan -= 8;  sinyaller.push({tip:"SAT",guc:8,aciklama:"5 bar momentum zayıf ("+t.mom.mom5+"%)"}); }
-    if (t.mom.mom14 > 8)      { puan += 5;  sinyaller.push({tip:"AL",guc:5,aciklama:"14 bar momentum (+"+t.mom.mom14+"%)"}); }
-    else if (t.mom.mom14 < -8){ puan -= 5;  sinyaller.push({tip:"SAT",guc:5,aciklama:"14 bar momentum ("+t.mom.mom14+"%)"}); }
-  }
-
-  // ICT: FVG
-  if (t.fvg) {
-    if (t.fvg.icinde && t.fvg.tip === "BULLISH") { puan += 12; sinyaller.push({tip:"AL",guc:12,aciklama:"ICT Bullish FVG içinde"}); }
-    if (t.fvg.icinde && t.fvg.tip === "BEARISH") { puan -= 12; sinyaller.push({tip:"SAT",guc:12,aciklama:"ICT Bearish FVG içinde"}); }
-  }
-
-  // ICT: Order Block
-  if (t.ob) {
-    if (t.ob.tip === "BULLISH_OB") { puan += 10; sinyaller.push({tip:"AL",guc:10,aciklama:"ICT Bullish Order Block bölgesi"}); }
-    if (t.ob.tip === "BEARISH_OB") { puan -= 10; sinyaller.push({tip:"SAT",guc:10,aciklama:"ICT Bearish Order Block bölgesi"}); }
-  }
+  if (m5 > 3)       { puan+=8;  aciklamalar.push("Mom5 güçlü +"+m5+"%"); }
+  else if (m5 < -3) { puan-=8;  aciklamalar.push("Mom5 zayıf "+m5+"%"); }
 
   puan = Math.max(0, Math.min(100, puan));
-  return { puan, sinyaller };
+
+  return {
+    puan: puan,
+    aciklamalar: aciklamalar,
+    gosterge: { fiyat:son, rsi1h:r1, rsi4h:r4, macdHist:mh, bbPctB:bb, ema20:e20, ema50:e50, hacimSpike:hs, mom5:m5, deg24:deg24 },
+  };
 }
 
-// ─── AI KARAR ─────────────────────────────────────────────────────────────────
-async function aiKarar(sembol, teknik, sentiment) {
-  var prompt = sembol + " kripto paritesi için işlem kararı ver.\n\n"
-    + "TEKNIK VERILER:\n"
-    + "Fiyat: $" + teknik.fiyat + " | 24H Değişim: " + teknik.deg24h + "%\n"
-    + "RSI 1H: " + teknik.rsi1h + " | RSI 4H: " + teknik.rsi4h + "\n"
-    + "MACD 1H: " + (teknik.macd1h ? "histogram="+teknik.macd1h.histogram : "yok") + "\n"
-    + "BB %B: " + (teknik.bb1h ? teknik.bb1h.pctB : "yok") + "\n"
-    + "EMA20: " + teknik.ema20 + " | EMA50: " + teknik.ema50 + " | EMA200: " + teknik.ema200 + "\n"
-    + "Hacim Spike: " + (teknik.hacim ? teknik.hacim.spike+"×" : "yok") + "\n"
-    + "Momentum 5bar: " + (teknik.mom ? teknik.mom.mom5+"%" : "yok") + "\n"
-    + "ICT FVG: " + (teknik.fvg ? teknik.fvg.tip+(teknik.fvg.icinde?" (içinde)":"") : "yok") + "\n"
-    + "ICT OB: " + (teknik.ob ? teknik.ob.tip : "yok") + "\n"
-    + "Sentiment Skoru: " + (sentiment||50) + "/100\n\n"
-    + "SADECE JSON döndür, başka hiçbir şey yazma:\n"
-    + '{"karar":"AL|SAT|BEKLE","guven":0-100,"gerekceler":"max 2 cümle","risk":"max 1 cümle"}';
-
+// ─── AI KARAR ────────────────────────────────────────────────────────────────
+async function aiKarar(sembol, g, puan) {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    // API key yoksa skor bazlı karar
+    return {
+      karar: puan >= 60 ? "AL" : puan <= 40 ? "SAT" : "BEKLE",
+      guven: puan,
+      gerekceler: "Teknik skor: " + puan + "/100",
+    };
+  }
+  var prompt = sembol + " teknik analiz:\n"
+    + "Fiyat: $" + g.fiyat + " | 24H: " + g.deg24 + "%\n"
+    + "RSI 1H: " + g.rsi1h + " | RSI 4H: " + g.rsi4h + "\n"
+    + "MACD hist: " + g.macdHist + " | BB %B: " + g.bbPctB + "\n"
+    + "EMA20: " + g.ema20 + " | EMA50: " + g.ema50 + "\n"
+    + "Hacim Spike: " + g.hacimSpike + "× | Mom5: " + g.mom5 + "%\n"
+    + "Teknik Skor: " + puan + "/100\n\n"
+    + "SADECE JSON, başka hiçbir şey yazma:\n"
+    + '{"karar":"AL|SAT|BEKLE","guven":0-100,"gerekceler":"1 cümle"}';
   try {
     var r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 200,
-        messages: [{ role:"user", content:prompt }],
-      }),
-      signal: AbortSignal.timeout(15000),
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-api-key":process.env.ANTHROPIC_API_KEY,"anthropic-version":"2023-06-01"},
+      body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:150,messages:[{role:"user",content:prompt}]}),
+      signal:AbortSignal.timeout(12000),
     });
     var d = await r.json();
-    var txt = d.content && d.content[0] && d.content[0].text || "";
+    var txt = (d.content&&d.content[0]&&d.content[0].text)||"";
     var m = txt.match(/\{[\s\S]*?\}/);
-    if (m) return JSON.parse(m[0]);
+    if (m) {
+      var parsed = JSON.parse(m[0]);
+      if (parsed.karar && parsed.guven !== undefined) return parsed;
+    }
   } catch(e) {}
-  return { karar:"BEKLE", guven:50, gerekceler:"AI yanıt alınamadı", risk:"Belirsiz" };
+  // Fallback
+  return {
+    karar: puan >= 60 ? "AL" : puan <= 40 ? "SAT" : "BEKLE",
+    guven: puan,
+    gerekceler: "Teknik skor bazlı karar: " + puan + "/100",
+  };
 }
 
-// ─── İŞLEM YÖNETİMİ ──────────────────────────────────────────────────────────
-function pozisyonAc(durum, sembol, fiyat, usdt) {
-  if (durum.nakit < usdt) usdt = durum.nakit;
-  if (usdt < 10) return null; // min 10 USDT
+// ─── İŞLEM FONKS. ─────────────────────────────────────────────────────────────
+function ac(dur, sembol, fiyat, usdt) {
+  if (dur.nakit < 10) return null;
+  if (usdt > dur.nakit) usdt = dur.nakit * 0.98;
   var adet = usdt / fiyat;
-  var stopLoss   = fiyat * (1 - STOP_LOSS_PCT);
-  var takeProfit = fiyat * (1 + TAKE_PROFIT_PCT);
-  durum.nakit -= usdt;
-  durum.pozisyonlar[sembol] = {
+  dur.nakit = Math.round((dur.nakit - usdt) * 100) / 100;
+  dur.pozisyonlar[sembol] = {
     adet: adet,
-    girisUSDT: usdt,
+    girisUSDT: Math.round(usdt*100)/100,
     girisFiyat: fiyat,
-    acilisZamani: new Date().toISOString(),
-    stopLoss: Math.round(stopLoss*100)/100,
-    takeProfit: Math.round(takeProfit*100)/100,
+    guncelFiyat: fiyat,
+    acanZaman: new Date().toISOString(),
+    stopLoss: Math.round(fiyat*(1-STOP_PCT)*100)/100,
+    takeProfit: Math.round(fiyat*(1+TP_PCT)*100)/100,
   };
-  var islem = {
-    id: Date.now(),
-    tip: "AL",
-    sembol: sembol,
-    fiyat: fiyat,
-    usdt: Math.round(usdt*100)/100,
-    adet: Math.round(adet*10000000)/10000000,
-    zaman: new Date().toISOString(),
-    stopLoss: Math.round(stopLoss*100)/100,
-    takeProfit: Math.round(takeProfit*100)/100,
-  };
-  durum.islemler.unshift(islem);
+  var islem = { id:Date.now(), tip:"AL", sembol:sembol, fiyat:fiyat,
+    usdt:Math.round(usdt*100)/100, adet:Math.round(adet*1e7)/1e7,
+    zaman:new Date().toISOString(),
+    stopLoss:dur.pozisyonlar[sembol].stopLoss,
+    takeProfit:dur.pozisyonlar[sembol].takeProfit };
+  dur.islemler.unshift(islem);
   return islem;
 }
 
-function pozisyonKapat(durum, sembol, fiyat, neden) {
-  var poz = durum.pozisyonlar[sembol];
+function kapat(dur, sembol, fiyat, neden) {
+  var poz = dur.pozisyonlar[sembol];
   if (!poz) return null;
   var gelir = poz.adet * fiyat;
-  var karZarar = gelir - poz.girisUSDT;
-  var karZararPct = Math.round((karZarar/poz.girisUSDT)*10000)/100;
-  durum.nakit += gelir;
-  var islem = {
-    id: Date.now(),
-    tip: "SAT",
-    sembol: sembol,
-    fiyat: fiyat,
-    usdt: Math.round(gelir*100)/100,
-    adet: Math.round(poz.adet*10000000)/10000000,
-    zaman: new Date().toISOString(),
-    karZarar: Math.round(karZarar*100)/100,
-    karZararPct: karZararPct,
-    neden: neden || "Bot kararı",
-    girisFiyat: poz.girisFiyat,
-    girisTarihi: poz.acilisZamani,
-  };
-  durum.islemler.unshift(islem);
-  delete durum.pozisyonlar[sembol];
+  var kz = gelir - poz.girisUSDT;
+  var kzPct = Math.round((kz/poz.girisUSDT)*10000)/100;
+  dur.nakit = Math.round((dur.nakit + gelir)*100)/100;
+  var islem = { id:Date.now(), tip:"SAT", sembol:sembol, fiyat:fiyat,
+    usdt:Math.round(gelir*100)/100, adet:Math.round(poz.adet*1e7)/1e7,
+    zaman:new Date().toISOString(), karZarar:Math.round(kz*100)/100,
+    karZararPct:kzPct, neden:neden||"Bot kararı", girisFiyat:poz.girisFiyat };
+  dur.islemler.unshift(islem);
+  delete dur.pozisyonlar[sembol];
   return islem;
 }
 
-function stopTakipKontrol(durum, sembol, fiyat) {
-  var poz = durum.pozisyonlar[sembol];
+function stopTakip(dur, sembol, fiyat) {
+  var poz = dur.pozisyonlar[sembol];
   if (!poz) return null;
-  if (fiyat <= poz.stopLoss)   return pozisyonKapat(durum, sembol, fiyat, "Stop-Loss tetiklendi");
-  if (fiyat >= poz.takeProfit) return pozisyonKapat(durum, sembol, fiyat, "Take-Profit tetiklendi");
+  poz.guncelFiyat = fiyat;
+  if (fiyat <= poz.stopLoss)   return kapat(dur, sembol, fiyat, "🛡 Stop-Loss tetiklendi");
+  if (fiyat >= poz.takeProfit) return kapat(dur, sembol, fiyat, "🎯 Take-Profit tetiklendi");
   return null;
+}
+
+function portfolyo(dur) {
+  var deger = dur.nakit;
+  Object.values(dur.pozisyonlar).forEach(function(p){
+    deger += p.adet * (p.guncelFiyat || p.girisFiyat);
+  });
+  return Math.round(deger*100)/100;
 }
 
 // ─── HANDLER ─────────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
-  var durum = getDurum();
+  var dur = getDurum();
 
-  // GET: mevcut durumu döner
+  // GET — durum
   if (req.method === "GET") {
-    var portfolyoDeger = durum.nakit;
-    Object.entries(durum.pozisyonlar).forEach(function(entry) {
-      var poz = entry[1];
-      portfolyoDeger += poz.adet * (poz.guncelFiyat || poz.girisFiyat);
-    });
-    var toplamKZ = portfolyoDeger - BASLANGIC_BAKIYE;
+    var pDeger = portfolyo(dur);
+    var kz = pDeger - BASLANGIC;
     return res.json({
       ok: true,
       durum: {
-        nakit: Math.round(durum.nakit*100)/100,
-        portfolyoDeger: Math.round(portfolyoDeger*100)/100,
-        toplamKZ: Math.round(toplamKZ*100)/100,
-        toplamKZPct: Math.round((toplamKZ/BASLANGIC_BAKIYE)*10000)/100,
-        pozisyonlar: durum.pozisyonlar,
-        sonIslemler: durum.islemler.slice(0,20),
-        sonKararlar: durum.kararlar.slice(0,10),
-        baslamaTarihi: durum.baslamaTarihi,
-        sonGuncelleme: durum.sonGuncelleme,
-        islemSayisi: durum.islemler.length,
+        nakit: Math.round(dur.nakit*100)/100,
+        portfolyoDeger: pDeger,
+        toplamKZ: Math.round(kz*100)/100,
+        toplamKZPct: Math.round((kz/BASLANGIC)*10000)/100,
+        pozisyonlar: dur.pozisyonlar,
+        sonIslemler: dur.islemler.slice(0,20),
+        sonKararlar: dur.kararlar.slice(0,10),
+        baslamaTarihi: dur.basTarihi,
+        sonGuncelleme: dur.guncelleme,
+        islemSayisi: dur.islemler.length,
       },
     });
   }
 
-  // POST: karar döngüsü çalıştır
   if (req.method !== "POST") return res.status(405).end();
 
-  var body = {};
-  try { body = await req.json(); } catch(e) {}
-  var gizliAnahtar = req.headers["x-bot-secret"] || body.secret;
-  if (process.env.BOT_SECRET && gizliAnahtar !== process.env.BOT_SECRET) {
-    return res.status(401).json({ hata:"Yetkisiz" });
-  }
+  // POST — karar döngüsü
+  var kararLog = { zaman:new Date().toISOString(), kararlar:[], islemler:[] };
+  var hatalar = [];
 
-  // 1. Fiyat + teknik veri çek
-  var teknikData = {};
-  try {
-    var fiyatR = await fetch(
-      (process.env.VERCEL_URL ? "https://"+process.env.VERCEL_URL : "http://localhost:3000")
-      + "/api/kripto-fiyat",
-      { signal: AbortSignal.timeout(25000) }
-    );
-    var fiyatD = await fiyatR.json();
-    teknikData = fiyatD.pariteler || {};
-  } catch(e) {
-    return res.status(500).json({ hata:"Fiyat alınamadı: "+e.message });
-  }
-
-  var kararLog = {
-    zaman: new Date().toISOString(),
-    kararlar: [],
-    islemler: [],
-  };
-
-  // 2. Her parite için işlem döngüsü
-  for (var i = 0; i < PARITELER.length; i++) {
+  for (var i=0; i<PARITELER.length; i++) {
     var sembol = PARITELER[i];
-    var t = teknikData[sembol];
-    if (!t || t.hata || !t.fiyat) continue;
+    try {
+      // Binance'ten direkt veri çek
+      var bars1h = await ohlcv(sembol, "1h", 200);
+      var bars4h = await ohlcv(sembol, "4h", 100);
+      if (!bars1h.length || !bars4h.length) { hatalar.push(sembol+": veri yok"); continue; }
 
-    var fiyat = t.fiyat;
+      var fiyat = bars1h[bars1h.length-1].c;
 
-    // Mevcut pozisyon var mı? Stop/Take kontrol et
-    if (durum.pozisyonlar[sembol]) {
-      durum.pozisyonlar[sembol].guncelFiyat = fiyat;
-      var kapanan = stopTakipKontrol(durum, sembol, fiyat);
-      if (kapanan) {
-        kararLog.islemler.push(kapanan);
-        kararLog.kararlar.push({
-          sembol: sembol,
-          karar: "SAT (Otomatik)",
-          fiyat: fiyat,
-          neden: kapanan.neden,
-          kz: kapanan.karZarar,
-        });
-        continue;
-      }
-    }
-
-    // Teknik puan hesapla
-    var teknikSonuc = teknikPuanla(t);
-    var puan = teknikSonuc.puan;
-
-    // AI karar al
-    var ai = await aiKarar(sembol, t, puan);
-
-    // Final karar
-    var finalKarar = "BEKLE";
-    if (ai.karar === "AL" && puan >= MIN_SINYAL_SKOR && !durum.pozisyonlar[sembol]) {
-      finalKarar = "AL";
-    } else if (ai.karar === "SAT" && puan <= (100-MIN_SINYAL_SKOR) && durum.pozisyonlar[sembol]) {
-      finalKarar = "SAT";
-    } else if (ai.karar === "AL" && puan >= MIN_SINYAL_SKOR && durum.pozisyonlar[sembol]) {
-      finalKarar = "TUTE"; // pozisyon var, al sinyali = tut
-    }
-
-    var kararItem = {
-      sembol: sembol,
-      fiyat: fiyat,
-      puan: puan,
-      aiKarar: ai.karar,
-      aiGuven: ai.guven,
-      finalKarar: finalKarar,
-      gerekceler: ai.gerekceler,
-      risk: ai.risk,
-      sinyaller: teknikSonuc.sinyaller.slice(0,5),
-      zaman: new Date().toISOString(),
-    };
-
-    // İşlem yap
-    if (finalKarar === "AL") {
-      var kullanilacakUSDT = Math.min(
-        durum.nakit * MAX_POZISYON_PCT,
-        durum.nakit * 0.95
-      );
-      if (kullanilacakUSDT >= 10) {
-        var islem = pozisyonAc(durum, sembol, fiyat, kullanilacakUSDT);
-        if (islem) {
-          kararItem.islem = islem;
-          kararLog.islemler.push(islem);
+      // Stop/Take kontrol — açık pozisyon varsa
+      if (dur.pozisyonlar[sembol]) {
+        var otomatik = stopTakip(dur, sembol, fiyat);
+        if (otomatik) {
+          kararLog.islemler.push(otomatik);
+          kararLog.kararlar.push({ sembol:sembol, fiyat:fiyat, finalKarar:"SAT (Otomatik)", puan:0, gerekceler:otomatik.neden, sinyaller:[] });
+          continue;
         }
       }
-    } else if (finalKarar === "SAT" && durum.pozisyonlar[sembol]) {
-      var satIslem = pozisyonKapat(durum, sembol, fiyat, "Bot kararı: "+ai.gerekceler);
-      if (satIslem) {
-        kararItem.islem = satIslem;
-        kararLog.islemler.push(satIslem);
-      }
-    }
 
-    kararLog.kararlar.push(kararItem);
+      // Teknik analiz
+      var teknik = teknikPuanla(bars1h, bars4h);
+      var puan   = teknik.puan;
+      var g      = teknik.gosterge;
+
+      // AI karar
+      var ai = await aiKarar(sembol, g, puan);
+
+      // Final karar
+      var final = "BEKLE";
+      var acikPoz = !!dur.pozisyonlar[sembol];
+
+      if (!acikPoz && ai.karar==="AL" && puan>=MIN_SKOR) {
+        final = "AL";
+      } else if (acikPoz && ai.karar==="SAT" && puan<=(100-MIN_SKOR)) {
+        final = "SAT";
+      } else if (acikPoz && ai.karar==="AL") {
+        final = "TUT";
+      }
+
+      // İşlem yap
+      var yapılanIslem = null;
+      if (final==="AL") {
+        var kullanUSDT = Math.min(dur.nakit*MAX_POZ_PCT, dur.nakit*0.95);
+        yapılanIslem = ac(dur, sembol, fiyat, kullanUSDT);
+        if (yapılanIslem) kararLog.islemler.push(yapılanIslem);
+      } else if (final==="SAT" && acikPoz) {
+        yapılanIslem = kapat(dur, sembol, fiyat, ai.gerekceler);
+        if (yapılanIslem) kararLog.islemler.push(yapılanIslem);
+      }
+
+      kararLog.kararlar.push({
+        sembol: sembol,
+        fiyat: fiyat,
+        puan: puan,
+        aiKarar: ai.karar,
+        aiGuven: ai.guven,
+        finalKarar: final,
+        gerekceler: ai.gerekceler,
+        sinyaller: teknik.aciklamalar.slice(0,5),
+        islem: yapılanIslem || null,
+      });
+
+    } catch(e) {
+      hatalar.push(sembol+": "+e.message);
+    }
   }
 
-  durum.kararlar.unshift(kararLog);
-  if (durum.kararlar.length > 50) durum.kararlar = durum.kararlar.slice(0,50);
-  durum.sonGuncelleme = new Date().toISOString();
-  global.__botDurum = durum;
+  dur.kararlar.unshift(kararLog);
+  if (dur.kararlar.length > 50) dur.kararlar = dur.kararlar.slice(0,50);
+  dur.guncelleme = new Date().toISOString();
+  global.__kr = dur;
 
-  var portfolyoDeger = durum.nakit;
-  Object.values(durum.pozisyonlar).forEach(function(poz) {
-    portfolyoDeger += poz.adet * (poz.guncelFiyat || poz.girisFiyat);
-  });
+  var pDeger = portfolyo(dur);
+  var kz = pDeger - BASLANGIC;
 
   res.json({
     ok: true,
@@ -378,8 +369,9 @@ export default async function handler(req, res) {
     islemSayisi: kararLog.islemler.length,
     kararlar: kararLog.kararlar,
     islemler: kararLog.islemler,
-    portfolyoDeger: Math.round(portfolyoDeger*100)/100,
-    nakit: Math.round(durum.nakit*100)/100,
-    toplamKZ: Math.round((portfolyoDeger-BASLANGIC_BAKIYE)*100)/100,
+    portfolyoDeger: pDeger,
+    nakit: Math.round(dur.nakit*100)/100,
+    toplamKZ: Math.round(kz*100)/100,
+    hatalar: hatalar,
   });
 }
