@@ -2,7 +2,7 @@ name: Kripto Bot — Saatlik Karar
 
 on:
   schedule:
-    - cron: "0 * * * *"   # Her saat başı
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -10,18 +10,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Bot Karar Döngüsü
+        env:
+          APP_URL: ${{ secrets.VERCEL_APP_URL }}
+          BOT_SECRET: ${{ secrets.BOT_SECRET }}
         run: |
-          echo "🤖 Kripto bot çalışıyor..."
-          curl -s -X POST \
+          if [ -z "$APP_URL" ]; then
+            echo "❌ VERCEL_APP_URL secret tanımlı değil!"
+            echo "Repo Settings → Secrets → Actions → New repository secret"
+            echo "VERCEL_APP_URL = https://senin-proje-adin.vercel.app"
+            exit 1
+          fi
+
+          echo "🤖 Kripto bot tetikleniyor: $APP_URL"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Content-Type: application/json" \
-            -H "x-bot-secret: ${{ secrets.BOT_SECRET }}" \
+            -H "x-bot-secret: ${BOT_SECRET:-}" \
+            --max-time 55 \
             -d '{}' \
-            "${{ secrets.VERCEL_APP_URL }}/api/kripto-bot" \
-            | python3 -c "
+            "${APP_URL}/api/kripto-bot")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "HTTP: $HTTP_CODE"
+          echo "Yanıt: ${BODY:0:500}"
+
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "$BODY" | python3 -c "
 import json,sys
-d=json.load(sys.stdin)
-print('Kararlar:', d.get('kararSayisi',0))
-print('İşlemler:', d.get('islemSayisi',0))
-print('Portföy:', d.get('portfolyoDeger','?'))
-print('K/Z:', d.get('toplamKZ','?'))
-" 2>/dev/null || echo "Yanıt parse edilemedi"
+try:
+  d=json.load(sys.stdin)
+  print('✅ Kararlar:', d.get('kararSayisi',0))
+  print('💰 İşlemler:', d.get('islemSayisi',0))
+  print('📊 Portföy:', d.get('portfolyoDeger','?'))
+  print('📈 K/Z:', d.get('toplamKZ','?'))
+  if d.get('hatalar'):
+    print('⚠ Hatalar:', d.get('hatalar'))
+except:
+  print('JSON parse hatası')
+"
+          else
+            echo "❌ API hatası: HTTP $HTTP_CODE"
+            exit 1
+          fi
