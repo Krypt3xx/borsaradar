@@ -439,14 +439,42 @@ export default function KriptoBotPage() {
 
           {/* Son çalıştırma sonucu */}
           {sonCalistirma&&(
-            <div className="card" style={{marginTop:16,borderColor:"#2a4a6a"}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#5090b0",marginBottom:8}}>Son Çalıştırma Sonucu</div>
-              <div style={{fontSize:11,color:"#4a8090"}}>
-                {sonCalistirma.kararSayisi} parite analiz edildi · {sonCalistirma.islemSayisi} işlem yapıldı
+            <div className="card" style={{marginTop:16,borderColor:sonCalistirma.hatalar&&sonCalistirma.hatalar.length?"#4a2a1a":"#2a4a6a"}}>
+              <div style={{fontSize:11,fontWeight:700,color:"#5090b0",marginBottom:8}}>Son Çalıştırma</div>
+              <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:8,fontSize:11}}>
+                <span style={{color:"#6abf90"}}>{sonCalistirma.kararSayisi||0} parite analiz</span>
+                <span style={{color:"#c090f0"}}>{sonCalistirma.islemSayisi||0} işlem</span>
+                <span style={{color:"#c0d8e4",fontFamily:"monospace"}}>
+                  Portföy: ${sonCalistirma.portfolyoDeger||"—"} | K/Z: {sonCalistirma.toplamKZ>=0?"+":""}{sonCalistirma.toplamKZ||0}$
+                </span>
               </div>
-              <div style={{fontSize:11,color:"#3a7060",marginTop:4,fontFamily:"monospace"}}>
-                Portföy: ${sonCalistirma.portfolyoDeger} · Nakit: ${sonCalistirma.nakit} · K/Z: {sonCalistirma.toplamKZ>=0?"+":""}{sonCalistirma.toplamKZ}$
-              </div>
+              {sonCalistirma.kaynaklar&&Object.keys(sonCalistirma.kaynaklar).length>0&&(
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:6}}>
+                  {Object.entries(sonCalistirma.kaynaklar).map(function(e){
+                    var renk=e[1]==="Binance"?"#f7931a":e[1]==="Kraken"?"#9945ff":e[1]==="CoinGecko"?"#50dd90":"#aaa";
+                    return <span key={e[0]} style={{fontSize:9,background:"#0a1520",border:"1px solid "+renk+"44",color:renk,padding:"2px 7px",borderRadius:4}}>{e[0].replace("USDT","")}: {e[1]}</span>;
+                  })}
+                </div>
+              )}
+              {sonCalistirma.kararlar&&sonCalistirma.kararlar.map(function(k,i){
+                var renk=k.finalKarar==="AL"?"#50dd90":k.finalKarar==="SAT"?"#ff7070":k.finalKarar==="TUT"?"#ffcc44":"#4a6070";
+                return(
+                  <div key={i} style={{fontSize:10,color:"#4a7080",padding:"4px 0",borderTop:"1px solid #1a2d3e",marginTop:4}}>
+                    <span style={{color:renk,fontWeight:700,marginRight:6}}>{k.finalKarar}</span>
+                    <span style={{color:"#7ab8c8",marginRight:6}}>{k.sembol&&k.sembol.replace("USDT","")}</span>
+                    <span style={{color:"#3a5060"}}>skor:{k.puan} | AI:{k.aiKarar}({k.aiGuven}%)</span>
+                    {k.gerekceler&&<div style={{color:"#3a6070",marginTop:2,fontSize:9}}>{k.gerekceler}</div>}
+                  </div>
+                );
+              })}
+              {sonCalistirma.hatalar&&sonCalistirma.hatalar.length>0&&(
+                <div style={{marginTop:8,padding:"6px 10px",background:"#1a0e00",border:"1px solid #5a3a10",borderRadius:5}}>
+                  <div style={{fontSize:10,color:"#cc8040",fontWeight:700,marginBottom:4}}>⚠ Hatalar:</div>
+                  {sonCalistirma.hatalar.map(function(h,i){
+                    return <div key={i} style={{fontSize:10,color:"#aa6030"}}>{h}</div>;
+                  })}
+                </div>
+              )}
             </div>
           )}
 
